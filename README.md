@@ -55,7 +55,6 @@ Ze względu na specyficzne wymagania biblioteki MediaPipe na systemach Windows, 
     ```bash
     pip install -r requirements.txt
     ```
-    *Uwaga: Plik requirements wymusza kompatybilną wersję `protobuf==3.20.3`, aby uniknąć błędów na Windows.*
 
 4.  **Uruchom aplikację:**
     ```bash
