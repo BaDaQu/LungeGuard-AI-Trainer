@@ -65,6 +65,4 @@ Ze względu na specyficzne wymagania biblioteki MediaPipe na systemach Windows, 
 ## 👨‍💻 Autor
 **Bartłomiej Raj (BaDaQu)**
 
----
 *Stan projektu: Faza deweloperska - gotowa architektura i szkielet aplikacji.*
-```
