@@ -1,4 +1,3 @@
-```markdown
 # LungeGuard – Inteligentny asystent treningu wykroków
 
 **LungeGuard** to aplikacja desktopowa wspierająca trening siłowy poprzez analizę techniki wykonywania wykroków (lunges) w czasie rzeczywistym. System wykorzystuje Computer Vision (MediaPipe) oraz algorytmy geometryczne do wykrywania błędów w postawie i zapewniania głosowego feedbacku użytkownikowi.
@@ -64,8 +63,7 @@ Ze względu na specyficzne wymagania biblioteki MediaPipe na systemach Windows, 
     ```
 
 ## 👨‍💻 Autor
-Projekt realizowany indywidualnie w ramach zaliczenia przedmiotu.
-**Bartłomiej Jedyk (BaDaQu)**
+**Bartłomiej Raj (BaDaQu)**
 
 ---
 *Stan projektu: Faza deweloperska - gotowa architektura i szkielet aplikacji.*
