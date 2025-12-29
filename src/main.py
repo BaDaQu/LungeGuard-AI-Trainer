@@ -1,26 +1,27 @@
-import cv2
-import mediapipe as mp
-import customtkinter as ctk
-import numpy as np
+from src.gui.app_ui import AppUI
+from src.utils.camera_handler import CameraHandler
+from src.logic.pose_detector import PoseDetector
+from src.logic.trainer_logic import TrainerLogic
 
 
 def main():
-    print("--- LungeGuard System Check ---")
+    print("--- Inicjalizacja LungeGuard ---")
 
-    # Test OpenCV
-    print(f"OpenCV Version: {cv2.__version__}")
-
-    # Test MediaPipe
+    # 1. Inicjalizacja komponentów (Architektura)
+    # Tworzymy obiekty klas, żeby sprawdzić czy importy działają
     try:
-        mp_pose = mp.solutions.pose
-        print("MediaPipe: OK")
+        camera = CameraHandler(0)
+        detector = PoseDetector()
+        logic = TrainerLogic()
+        ui = AppUI()
+
+        print("\nWSZYSTKIE MODUŁY ZAŁADOWANE POPRAWNIE.\n")
+
+        # Start aplikacji
+        ui.run()
+
     except Exception as e:
-        print(f"MediaPipe Error: {e}")
-
-    # Test CustomTkinter
-    print(f"CustomTkinter Version: {ctk.__version__}")
-
-    print("System gotowy do pracy!")
+        print(f"BŁĄD KRYTYCZNY: {e}")
 
 
 if __name__ == "__main__":
