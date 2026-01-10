@@ -1,41 +1,63 @@
 class TrainerLogic:
     def __init__(self):
         """
-        Klasa zarządzająca stanem treningu.
-        Liczy powtórzenia na podstawie cyklu ruchu (Góra -> Dół -> Góra).
+        Klasa zarządzająca stanem treningu i oceną techniki.
         """
         self.reps = 0
-        self.stage = "UP"  # Dostępne stany: "UP" (góra), "DOWN" (dół)
+        self.stage = "UP"
 
-        # Progi kątowe (kalibracja)
-        self.ANGLE_THRESHOLD_DOWN = 95  # Poniżej tego kąta uznajemy zejście w dół
-        self.ANGLE_THRESHOLD_UP = 160  # Powyżej tego kąta uznajemy wyprost
+        # Flaga, która pamięta, czy w trakcie obecnego powtórzenia wystąpił błąd
+        self.current_rep_failed = False
+
+        self.ANGLE_THRESHOLD_DOWN = 95
+        self.ANGLE_THRESHOLD_UP = 160
+        self.VALGUS_THRESHOLD = 0.03
+        self.TORSO_THRESHOLD = 20
+
+    def mark_error(self):
+        """
+        Metoda wywoływana, gdy wykryto błąd techniczny (plecy lub kolano).
+        Oznacza obecne powtórzenie jako 'spalone'.
+        """
+        if self.stage == "DOWN":
+            self.current_rep_failed = True
 
     def update_reps(self, knee_angle):
         """
-        Aktualizuje licznik powtórzeń na podstawie kąta kolana.
-        :param knee_angle: Aktualny kąt zgięcia kolana.
-        :return: (liczba_powtórzeń, aktualny_stan)
+        Aktualizuje licznik powtórzeń, biorąc pod uwagę błędy techniczne.
         """
         if knee_angle is None:
             return self.reps, self.stage
 
-        # Logika maszyny stanów
         if knee_angle > self.ANGLE_THRESHOLD_UP:
-            # Jeśli wróciliśmy do góry, a wcześniej byliśmy na dole -> zaliczamy powtórzenie
             if self.stage == "DOWN":
-                self.reps += 1
+                # Sprawdzamy, czy powtórzenie było czyste
+                if not self.current_rep_failed:
+                    self.reps += 1
+                    print(f"TRENER: Powtórzenie {self.reps} zaliczone.")
+                else:
+                    print("TRENER: Powtórzenie niezaliczone (BŁĄD TECHNICZNY).")
+
+                # Resetujemy stan i flagę błędu na nowe powtórzenie
                 self.stage = "UP"
-                print(f"TRENER: Powtórzenie zaliczone! Razem: {self.reps}")
+                self.current_rep_failed = False
 
         elif knee_angle < self.ANGLE_THRESHOLD_DOWN:
-            # Jeśli zeszliśmy nisko -> zmieniamy stan na DOWN
             if self.stage == "UP":
                 self.stage = "DOWN"
+                # Na wszelki wypadek resetujemy flagę przy zejściu w dół
+                self.current_rep_failed = False
 
         return self.reps, self.stage
 
-    def reset(self):
-        """Zeruje licznik."""
-        self.reps = 0
-        self.stage = "UP"
+    def check_valgus(self, deviation):
+        """Analiza Valgus."""
+        if abs(deviation) > self.VALGUS_THRESHOLD:
+            return True, "ZLE! (KOLANO)", (0, 0, 255)
+        return False, "OK", (0, 255, 0)
+
+    def check_torso(self, torso_angle):
+        """Analiza Pleców."""
+        if torso_angle > self.TORSO_THRESHOLD:
+            return True, "PLECY!", (0, 0, 255)
+        return False, "OK", (0, 255, 0)
