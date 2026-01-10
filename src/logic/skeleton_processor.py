@@ -19,7 +19,7 @@ class SkeletonProcessor:
 
     def process_side_view(self, landmarks, side="left"):
         """
-        Oblicza kąt zgięcia kolana oraz kąt pochylenia tułowia.
+        Oblicza kąt zgięcia kolana, pochylenia tułowia oraz nachylenia piszczeli.
         """
         if not landmarks or len(landmarks) < 33:
             return None
@@ -36,31 +36,33 @@ class SkeletonProcessor:
                 p_knee = landmarks[self.MP_RIGHT_KNEE]
                 p_ankle = landmarks[self.MP_RIGHT_ANKLE]
 
-            # Obliczenie kąta kolana (Biodro-Kolano-Kostka)
+            # 1. Kąt kolana
             knee_angle = GeometryUtils.calculate_angle(p_hip, p_knee, p_ankle)
 
-            # Obliczenie kąta pochylenia tułowia
-            # Tworzymy wirtualny punkt pionowo nad biodrem, aby mieć punkt odniesienia
-            p_vertical = [0, p_hip[1], p_hip[2] - 0.5, 0]
+            # 2. Kąt tułowia (względem pionu)
+            p_vertical_hip = [0, p_hip[1], p_hip[2] - 0.5, 0]
+            torso_angle = GeometryUtils.calculate_angle(p_shoulder, p_hip, p_vertical_hip)
 
-            # Kąt między odcinkiem Bark-Biodro a pionem
-            torso_angle = GeometryUtils.calculate_angle(p_shoulder, p_hip, p_vertical)
+            # 3. Kąt piszczeli (Shin Angle) - względem pionu
+            # Jeśli piszczel jest w pionie, kąt = 0. Im mocniej kolano idzie w przód, tym większy kąt.
+            p_vertical_ankle = [0, p_ankle[1], p_ankle[2] - 0.5, 0]
+            shin_angle = GeometryUtils.calculate_angle(p_knee, p_ankle, p_vertical_ankle)
 
             return {
                 "knee_angle": knee_angle,
                 "torso_angle": torso_angle,
+                "shin_angle": shin_angle,
                 "knee_point": (p_knee[1], p_knee[2]),
                 "hip_point": (p_hip[1], p_hip[2]),
-                "shoulder_point": (p_shoulder[1], p_shoulder[2])
+                "shoulder_point": (p_shoulder[1], p_shoulder[2]),
+                "ankle_point": (p_ankle[1], p_ankle[2])
             }
 
         except IndexError:
             return None
 
     def process_front_view(self, landmarks):
-        """
-        Analizuje liniowość nogi (Valgus) w widoku przednim.
-        """
+        """Analiza Valgus w widoku przednim."""
         if not landmarks or len(landmarks) < 33:
             return None
 
@@ -68,7 +70,6 @@ class SkeletonProcessor:
         p_knee = landmarks[self.MP_LEFT_KNEE]
         p_ankle = landmarks[self.MP_LEFT_ANKLE]
 
-        # Sprawdzenie czy kolano znajduje się w połowie dystansu X między biodrem a kostką
         expected_knee_x = (p_hip[1] + p_ankle[1]) / 2
         deviation = p_knee[1] - expected_knee_x
 
