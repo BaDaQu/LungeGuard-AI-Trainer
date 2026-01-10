@@ -1,61 +1,68 @@
 import cv2
+import time
 from src.utils.camera_handler import CameraHandler
+from src.logic.pose_detector import PoseDetector
 
 
 def main():
-    print("--- LungeGuard: Test Dwóch Kamer (Issue #3) ---")
+    print("--- LungeGuard: Test Detekcji AI (Issue #4) ---")
 
     # ================= KONFIGURACJA =================
-    # 1. Kamera Frontowa (Laptop)
     FRONT_CAM_ID = 0
-
-    # 2. Kamera Boczna (Telefon - IP Webcam)
-
+    # Wpisz tutaj SWOJE IP z telefonu:
     SIDE_CAM_URL = "http://192.168.33.15:8080/video"
     # ================================================
 
     print("Inicjalizacja kamer...")
-
-    # Tworzymy instancje handlerów
     cam_front = CameraHandler(source=FRONT_CAM_ID, name="FRONT")
     cam_side = CameraHandler(source=SIDE_CAM_URL, name="SIDE")
 
-    # Uruchamiamy wątki
+    print("Inicjalizacja modeli AI...")
+    # Tworzymy DWA osobne detektory, żeby nie mieszać kontekstu śledzenia
+    detector_front = PoseDetector(complexity=1)
+    detector_side = PoseDetector(complexity=1)
+
     cam_front.start()
     cam_side.start()
 
-    print("\nOczekiwanie na sygnał wideo... (Naciśnij 'q' aby wyjść)\n")
+    # Czas na rozgrzanie kamer
+    time.sleep(2)
+    print("Start analizy! Naciśnij 'q' aby wyjść.")
 
     try:
         while True:
-            # Pobieramy klatki
+            # 1. Pobranie klatek
             frame_front = cam_front.get_frame()
             frame_side = cam_side.get_frame()
 
-            # Wyświetlanie FRONT (Laptop)
+            # 2. Przetwarzanie FRONT
             if frame_front is not None:
-                # Odbicie lustrzane dla naturalnego odczucia
+                # Detekcja (zwraca obraz z narysowanym szkieletem)
+                frame_front, _ = detector_front.find_pose(frame_front)
+
+                # Odbicie lustrzane i wyświetlenie
                 frame_front = cv2.flip(frame_front, 1)
-                cv2.imshow("Kamera FRONT (Laptop)", frame_front)
+                cv2.imshow("AI FRONT", frame_front)
 
-            # Wyświetlanie SIDE (Telefon)
+            # 3. Przetwarzanie SIDE
             if frame_side is not None:
-                # Skalowanie obrazu z telefonu (często są ogromne, np. 4K)
-                frame_side = cv2.resize(frame_side, (640, 480))
-                cv2.imshow("Kamera SIDE (Telefon)", frame_side)
+                # Detekcja
+                frame_side, _ = detector_side.find_pose(frame_side)
 
-            # Wyjście klawiszem 'q'
+                # Skalowanie i wyświetlenie
+                frame_side = cv2.resize(frame_side, (640, 480))
+                cv2.imshow("AI SIDE", frame_side)
+
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
     except KeyboardInterrupt:
-        print("Przerwano przez użytkownika.")
+        pass
     finally:
-        print("Zamykanie zasobów...")
+        print("Sprzątanie...")
         cam_front.stop()
         cam_side.stop()
         cv2.destroyAllWindows()
-        print("Koniec testu.")
 
 
 if __name__ == "__main__":
