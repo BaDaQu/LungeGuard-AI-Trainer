@@ -6,10 +6,11 @@ from src.logic.trainer_logic import TrainerLogic
 
 
 def main():
-    print("--- LungeGuard: Walidacja Powtórzeń ---")
+    print("--- LungeGuard: System Start ---")
 
     # ================= KONFIGURACJA =================
     FRONT_CAM_ID = 0
+    # Wpisz IP:
     SIDE_CAM_URL = "http://192.168.33.15:8080/video"
     # ================================================
 
@@ -31,8 +32,65 @@ def main():
             frame_front = cam_front.get_frame()
             frame_side = cam_side.get_frame()
 
-            # === WIDOK PRZEDNI (Valgus) ===
-            # Analizujemy przód najpierw, żeby zgłosić błąd do trenera przed aktualizacją licznika
+            # === WIDOK BOCZNY ===
+            if frame_side is not None:
+                frame_side = cv2.resize(frame_side, (640, 480))
+
+                frame_side, _ = detector_side.find_pose(frame_side)
+                landmarks_side = detector_side.get_landmarks()
+                side_data = processor.process_side_view(landmarks_side, side="left")
+
+                if side_data:
+                    knee_angle = side_data["knee_angle"]
+                    torso_angle = side_data["torso_angle"]
+                    shin_angle = side_data["shin_angle"]
+
+                    # Sprawdzanie błędów
+                    is_torso_error, _, torso_color = trainer.check_torso(torso_angle)
+                    is_knee_error, _, knee_color = trainer.check_knee_forward(shin_angle)
+
+                    if is_torso_error or is_knee_error:
+                        trainer.mark_error()
+
+                    reps, stage = trainer.update_reps(knee_angle)
+
+                    # Punkty
+                    kx, ky = side_data["knee_point"]
+                    sx, sy = side_data["shoulder_point"]
+                    hx, hy = side_data["hip_point"]
+                    ax, ay = side_data["ankle_point"]
+
+                    h, w, _ = frame_side.shape
+
+                    # Panel Licznika
+                    panel_color = (0, 0, 255) if trainer.current_rep_failed and stage == "DOWN" else (0, 255, 0)
+                    cv2.rectangle(frame_side, (0, 0), (220, 100), panel_color, cv2.FILLED)
+                    cv2.putText(frame_side, str(reps), (20, 70),
+                                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 3)
+                    cv2.putText(frame_side, stage, (100, 70),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+                    # Wizualizacja Pleców
+                    chx, chy = int(hx * w), int(hy * h)
+                    csx, csy = int(sx * w), int(sy * h)
+                    cv2.line(frame_side, (chx, chy), (csx, csy), torso_color, 2)
+                    cv2.putText(frame_side, f"Back: {int(torso_angle)}", (10, 140),
+                                cv2.FONT_HERSHEY_DUPLEX, 1, torso_color, 2)
+
+                    # Wizualizacja Piszczeli (Knee-Over-Toe)
+                    cax, cay = int(ax * w), int(ay * h)
+                    ckx, cky = int(kx * w), int(ky * h)
+                    cv2.line(frame_side, (cax, cay), (ckx, cky), knee_color, 2)
+                    cv2.putText(frame_side, f"Shin: {int(shin_angle)}", (10, 180),
+                                cv2.FONT_HERSHEY_DUPLEX, 1, knee_color, 2)
+
+                    # Kąt kolana
+                    cv2.putText(frame_side, f"{int(knee_angle)}", (ckx, cky - 40),
+                                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2)
+
+                cv2.imshow("SIDE (Trainer)", frame_side)
+
+            # === WIDOK PRZEDNI ===
             if frame_front is not None:
                 frame_front = cv2.flip(frame_front, 1)
                 frame_front, _ = detector_front.find_pose(frame_front)
@@ -46,8 +104,6 @@ def main():
                     cx, cy = int(kx * w), int(ky * h)
 
                     is_valgus_error, status_msg, status_color = trainer.check_valgus(dev)
-
-                    # JEŚLI BŁĄD -> Zgłaszamy do trenera (spalamy powtórzenie)
                     if is_valgus_error:
                         trainer.mark_error()
 
@@ -58,49 +114,6 @@ def main():
                                 cv2.FONT_HERSHEY_SIMPLEX, 1, status_color, 2)
 
                 cv2.imshow("FRONT (Correction)", frame_front)
-
-            # === WIDOK BOCZNY (Licznik + Plecy) ===
-            if frame_side is not None:
-                frame_side = cv2.resize(frame_side, (640, 480))
-
-                frame_side, _ = detector_side.find_pose(frame_side)
-                landmarks_side = detector_side.get_landmarks()
-                side_data = processor.process_side_view(landmarks_side, side="left")
-
-                if side_data:
-                    knee_angle = side_data["knee_angle"]
-                    torso_angle = side_data["torso_angle"]
-
-                    is_torso_error, _, torso_color = trainer.check_torso(torso_angle)
-
-                    # JEŚLI BŁĄD PLECÓW -> Zgłaszamy do trenera
-                    if is_torso_error:
-                        trainer.mark_error()
-
-                    # Aktualizacja licznika (teraz trener wie, czy był błąd)
-                    reps, stage = trainer.update_reps(knee_angle)
-
-                    kx, ky = side_data["knee_point"]
-                    h, w, _ = frame_side.shape
-
-                    # Wizualizacja Panelu
-                    # Zmieniamy kolor panelu na czerwony, jeśli powtórzenie jest już "spalone"
-                    panel_color = (0, 0, 255) if trainer.current_rep_failed and stage == "DOWN" else (0, 255, 0)
-
-                    cv2.rectangle(frame_side, (0, 0), (220, 100), panel_color, cv2.FILLED)
-                    cv2.putText(frame_side, str(reps), (20, 70),
-                                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 3)
-                    cv2.putText(frame_side, stage, (100, 70),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-                    cv2.putText(frame_side, f"Back: {int(torso_angle)}", (10, 140),
-                                cv2.FONT_HERSHEY_DUPLEX, 1, torso_color, 2)
-
-                    ckx, cky = int(kx * w), int(ky * h)
-                    cv2.putText(frame_side, f"{int(knee_angle)}", (ckx, cky - 40),
-                                cv2.FONT_HERSHEY_DUPLEX, 1, (0, 255, 0), 2)
-
-                cv2.imshow("SIDE (Trainer)", frame_side)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
