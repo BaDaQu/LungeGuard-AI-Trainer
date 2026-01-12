@@ -72,4 +72,9 @@ LungeGuard/
 
 ## 👨‍💻 Autor
 Projekt realizowany w ramach zaliczenia przedmiotu.
+
 **Bartłomiej Raj (BaDaQu)**
+**Bartłomiej Jedyk**
+**Marcel Podlecki**'
+**Wojciech Stochmiałek**
+
