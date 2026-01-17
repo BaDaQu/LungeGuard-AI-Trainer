@@ -7,3 +7,4 @@ SpeechRecognition
 pyttsx3
 pyaudio
 Pillow
+vosk
