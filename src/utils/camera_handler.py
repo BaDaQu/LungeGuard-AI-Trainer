@@ -21,14 +21,14 @@ class CameraHandler:
 
         print(f"[{self.name}] Start: {self.source}")
         try:
+            # DSHOW dla Windows USB (szybki start)
             if isinstance(self.source, int):
-                # USB Camera
                 self.capture = cv2.VideoCapture(self.source, cv2.CAP_DSHOW)
                 self.capture.set(cv2.CAP_PROP_FPS, 30)
             else:
                 # IP Camera
                 self.capture = cv2.VideoCapture(self.source)
-                # Wymuszenie minimalnego bufora
+                # Ustawiamy minimalny bufor
                 self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
             if not self.capture.isOpened():
@@ -44,18 +44,23 @@ class CameraHandler:
         self.thread.start()
 
     def _update(self):
+        """
+        Wątek pobierający.
+        AGRESYWNA OPTYMALIZACJA: Zawsze czytamy najnowszą klatkę, pomijając stare.
+        """
         while self.running:
             if self.capture.isOpened():
-                # GRAB: Pobieramy dane z bufora, ale jeszcze nie dekodujemy
-                # To pozwala "przewinąć" bufor, jeśli zrobił się korek
+                # --- KLUCZOWA ZMIANA ---
+                # Grab() pobiera klatkę z bufora sprzętowego.
+                # Robimy to, żeby 'przewinąć' bufor do końca.
                 self.capture.grab()
 
-                # RETRIEVE: Dekodujemy tylko najnowszą klatkę
+                # Retrieve() dekoduje obraz. Robimy to raz na pętlę.
                 ret, raw_frame = self.capture.retrieve()
 
                 if ret:
                     try:
-                        # Używamy INTER_NEAREST - najszybsze możliwe skalowanie (zero antyaliasingu)
+                        # Skalowanie w wątku (najszybsza metoda INTER_NEAREST)
                         resized_frame = cv2.resize(
                             raw_frame,
                             (self.target_width, self.target_height),
@@ -67,8 +72,8 @@ class CameraHandler:
                     except Exception:
                         pass
                 else:
-                    # Jeśli strumień zerwał, czekamy chwilę
-                    time.sleep(0.05)
+                    # Jeśli zgubiliśmy sygnał, krótki sleep żeby nie spalić CPU
+                    time.sleep(0.01)
             else:
                 time.sleep(0.1)
 
