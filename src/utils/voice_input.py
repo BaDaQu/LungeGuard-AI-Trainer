@@ -9,24 +9,31 @@ from vosk import Model, KaldiRecognizer
 class VoiceInput:
     def __init__(self):
         """
-        Rozpoznawanie mowy OFFLINE (Vosk) z zerowym opóźnieniem.
-        Wykorzystuje Gramatykę (ograniczony słownik) i wyniki cząstkowe.
+        Rozpoznawanie mowy OFFLINE (Vosk) z naprawioną ścieżką.
         """
         self.is_running = False
         self.thread = None
         self.last_command = None
-        self.model_path = "model"
-
-        # Debounce - żeby nie wykryło "Start" 5 razy w ciągu sekundy
         self.last_trigger_time = 0
         self.COOLDOWN = 0.5
+
+        # --- NAPRAWA ŚCIEŻKI (ABSOLUTE PATH) ---
+        # Pobieramy ścieżkę do tego pliku (voice_input.py)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Wychodzimy 2 piętra w górę: src/utils -> src -> ROOT
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        # Sklejamy pełną ścieżkę do folderu model
+        self.model_path = os.path.join(project_root, "model")
+
+        print(f"VOICE DEBUG: Szukam modelu w: {self.model_path}")
+        # ----------------------------------------
 
         if not os.path.exists(self.model_path):
             print(f"VOICE ERROR: Brak folderu '{self.model_path}'!")
             self.model = None
         else:
             from vosk import SetLogLevel
-            SetLogLevel(-1)  # Wyłącz logi w konsoli
+            SetLogLevel(-1)
             try:
                 self.model = Model(self.model_path)
             except Exception as e:
