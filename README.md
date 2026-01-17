@@ -15,15 +15,20 @@ LungeGuard monitoruje 3 kluczowe błędy techniczne. Jeśli którykolwiek wystą
 *   ❌ **Garbienie się (Torso Inclination):** Wykrywanie nadmiernego pochylenia tułowia powyżej 20° (Widok Side).
 *   ❌ **Przeciążenie kolana (Knee-Over-Toe):** Wykrywanie nadmiernego wysunięcia kolana przed palce stopy – kąt piszczeli > 40° (Widok Side).
 
-### 3. Inteligentny Licznik (Maszyna Stanów)
-*   Działa w oparciu o maszynę stanów (States: `UP` / `DOWN`).
-*   Zalicza powtórzenie tylko wtedy, gdy wykonano pełny zakres ruchu (kąt kolana < 95° w dole, > 160° w górze) **ORAZ** nie wykryto żadnego błędu w trakcie ruchu.
+### 3. Inteligentny Licznik & Anti-Cheat
+*   **Maszyna Stanów:** Zalicza powtórzenie tylko po wykonaniu pełnego cyklu (Kąt < 95° w dole, > 160° w górze).
+*   **Anti-Cheat:** System analizuje rozstaw stóp i obniżenie biodra, aby odróżnić poprawny wykrok od oszustw (np. uniesienia kolana w miejscu "Skip A" lub płytkich przysiadów).
+
+### 4. Optymalizacja i Standaryzacja (Sprint 2.5)
+*   **Stabilizacja (Smoothing):** Zastosowano filtry wygładzające (EMA), eliminujące drgania punktów szkieletowych.
+*   **Kontrola Środowiska:** System automatycznie sprawdza oświetlenie (za ciemno/za jasno) oraz odległość użytkownika od kamery, wyświetlając komunikaty korygujące (np. "PODEJDZ BLIZEJ").
+*   **Wydajność:** Zoptymalizowana obsługa kamer sieciowych eliminuje opóźnienia (lagi) nawet przy pracy na słabszym sprzęcie.
 
 ## 🛠️ Stos technologiczny
 
 *   **Język:** Python 3.10
 *   **AI / Computer Vision:** MediaPipe Pose (Google), OpenCV
-*   **Matematyka:** NumPy, autorskie algorytmy geometryczne (obliczanie wektorów i kątów stawowych)
+*   **Matematyka:** NumPy, autorskie algorytmy geometryczne
 *   **Architektura:** Modułowa (Separacja logiki `TrainerLogic`, procesora danych `SkeletonProcessor` i warstwy prezentacji).
 *   **Sprzęt:** Laptop (Server/Processing) + Smartfon (IP Camera).
 
@@ -38,7 +43,9 @@ LungeGuard/
 │   │   ├── skeleton_processor.py  # Normalizacja danych i obliczenia biomechaniczne
 │   │   └── trainer_logic.py       # Mózg systemu (Maszyna stanów, Walidacja)
 │   ├── utils/
-│   │   └── camera_handler.py      # Wielowątkowa obsługa kamer (USB + IP)
+│   │   ├── camera_handler.py      # Wielowątkowa obsługa kamer (USB + IP)
+│   │   ├── environment_check.py   # Walidacja oświetlenia i dystansu
+│   │   └── landmark_smoother.py   # Filtry wygładzające drgania (EMA)
 │   └── main.py                    # Główna pętla programu i wizualizacja
 ├── assets/
 └── requirements.txt
@@ -62,7 +69,7 @@ LungeGuard/
 
 3.  **Skonfiguruj kamerę w telefonie:**
     *   Zainstaluj aplikację **IP Webcam** na Androidzie.
-    *   Ustaw rozdzielczość wideo na **640x480** (dla płynności).
+    *   **WAŻNE:** Ustaw rozdzielczość wideo na **640x480** i jakość na **20** (dla płynności).
     *   Uruchom serwer i odczytaj adres IP.
 
 4.  **Uruchom aplikację:**
@@ -70,11 +77,10 @@ LungeGuard/
     *   Edytuj zmienną `SIDE_CAM_URL`, wpisując adres IP telefonu.
     *   Uruchom: `python src/main.py`
 
-## 👨‍💻 Autor
+## 👨‍💻 Zespół Projektowy
 Projekt realizowany w ramach zaliczenia przedmiotu.
 
-**Bartłomiej Raj (BaDaQu)**
-**Bartłomiej Jedyk**
-**Marcel Podlecki**'
-**Wojciech Stochmiałek**
-
+*   **Bartłomiej Raj (BaDaQu)**
+*   **Bartłomiej Jedyk**
+*   **Marcel Podlecki**
+*   **Wojciech Stochmiałek**
