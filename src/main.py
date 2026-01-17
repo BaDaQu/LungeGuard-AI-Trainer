@@ -2,31 +2,36 @@ import cv2
 from src.utils.camera_handler import CameraHandler
 from src.utils.landmark_smoother import LandmarkSmoother
 from src.utils.environment_check import EnvironmentCheck
+from src.utils.audio_manager import AudioManager  # NOWOŚĆ
 from src.logic.pose_detector import PoseDetector
 from src.logic.skeleton_processor import SkeletonProcessor
 from src.logic.trainer_logic import TrainerLogic
 
 
 def main():
-    print("--- LungeGuard: Low Latency Mode ---")
+    print("--- LungeGuard: Audio Feedback (Issue 11) ---")
 
     # ================= KONFIGURACJA =================
     FRONT_CAM_ID = 0
+    # ADRES IP:
     SIDE_CAM_URL = "http://192.168.33.8:8080/video"
     # ================================================
 
-    # Konfigurujemy handler, żeby od razu zmniejszał obraz do 640x480
     cam_front = CameraHandler(source=FRONT_CAM_ID, name="FRONT", width=640, height=480)
     cam_side = CameraHandler(source=SIDE_CAM_URL, name="SIDE", width=640, height=480)
 
-    detector_front = PoseDetector(complexity=1)
-    detector_side = PoseDetector(complexity=1)
+    detector_front = PoseDetector(complexity=0)
+    detector_side = PoseDetector(complexity=0)
 
     smoother_front = LandmarkSmoother(alpha=0.65)
     smoother_side = LandmarkSmoother(alpha=0.65)
 
     processor = SkeletonProcessor()
     trainer = TrainerLogic()
+
+    # Inicjalizacja Audio
+    audio = AudioManager()
+    audio.start()
 
     cam_front.start()
     cam_side.start()
@@ -35,6 +40,7 @@ def main():
     cached_light_msg = ""
     cached_dist_front = ""
     cached_dist_side = ""
+    last_reps_count = 0  # Do wykrywania zmiany licznika
 
     print("System gotowy. Naciśnij 'q' aby wyjść.")
 
@@ -48,9 +54,8 @@ def main():
 
             # ================= WIDOK PRZEDNI =================
             if frame_front is not None:
-                # Odbicie lustrzane
                 frame_front = cv2.flip(frame_front, 1)
-                h, w, _ = frame_front.shape  # Powinno być 480, 640
+                h, w, _ = frame_front.shape
 
                 if do_heavy_check or cached_light_msg == "":
                     _, cached_light_msg = EnvironmentCheck.check_brightness(frame_front)
@@ -74,11 +79,14 @@ def main():
                 if front_data:
                     dev = front_data["valgus_deviation"]
                     kx, ky = front_data["knee_point"]
-                    # Skalowanie punktów
                     cx, cy = int(kx * w), int(ky * h)
 
                     is_valgus_error, status_msg, status_color = trainer.check_valgus(dev)
-                    if is_valgus_error: trainer.mark_error()
+
+                    if is_valgus_error:
+                        trainer.mark_error()
+                        # AUDIO: Komunikat korekcyjny
+                        audio.speak("Kolano na zewnątrz")
 
                     cv2.circle(frame_front, (cx, cy), 12, status_color, cv2.FILLED)
                     cv2.putText(frame_front, status_msg, (cx + 20, cy + 5),
@@ -111,9 +119,22 @@ def main():
                     is_torso_error, _, torso_color = trainer.check_torso(torso_angle)
                     is_knee_error, _, knee_color = trainer.check_knee_forward(shin_angle)
 
-                    if is_torso_error or is_knee_error: trainer.mark_error()
+                    if is_torso_error:
+                        trainer.mark_error()
+                        audio.speak("Wyprostuj plecy")
+
+                    if is_knee_error:
+                        trainer.mark_error()
+                        audio.speak("Kolano do tyłu")
+
                     reps, stage = trainer.update_reps(knee_angle, ankle_spread)
 
+                    # AUDIO: Liczenie powtórzeń (tylko gdy się zmieniło)
+                    if reps > last_reps_count:
+                        audio.speak(str(reps), force=True)  # force=True przebija cooldown
+                        last_reps_count = reps
+
+                    # Wizualizacja
                     kx, ky = side_data["knee_point"]
                     ax, ay = side_data["ankle_point"]
                     sx, sy = side_data["shoulder_point"]
@@ -148,6 +169,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        audio.stop()
         cam_front.stop()
         cam_side.stop()
         cv2.destroyAllWindows()
