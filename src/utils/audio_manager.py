@@ -14,7 +14,7 @@ class AudioManager:
         self.is_running = False
         self.thread = None
         self.last_spoken = {}
-        self.COOLDOWN_SECONDS = 3.0
+        self.COOLDOWN_SECONDS = 2.0
 
     def start(self):
         if self.is_running: return
