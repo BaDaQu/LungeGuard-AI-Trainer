@@ -7,7 +7,7 @@ class TrainerLogic:
         self.stage = "UP"
         self.current_rep_failed = False
 
-        # Progi kątowe dla licznika (Góra/Dół)
+        # Progi licznika
         self.ANGLE_THRESHOLD_DOWN = 95
         self.ANGLE_THRESHOLD_UP = 160
 
@@ -16,16 +16,25 @@ class TrainerLogic:
         self.TORSO_THRESHOLD = 20
         self.SHIN_THRESHOLD = 40
 
+        # NOWOŚĆ: Minimalny rozstaw stóp, aby uznać to za wykrok
+        # 0.15 oznacza, że stopy muszą być oddalone o 15% szerokości ekranu
+        self.MIN_ANKLE_SPREAD = 0.15
+
     def mark_error(self):
         """Oznacza powtórzenie jako spalone."""
         if self.stage == "DOWN":
             self.current_rep_failed = True
 
-    def update_reps(self, knee_angle):
-        """Aktualizuje licznik powtórzeń."""
+    def update_reps(self, knee_angle, ankle_spread):
+        """
+        Aktualizuje licznik. Wymaga poprawnego kąta ORAZ rozstawu nóg.
+        :param knee_angle: Kąt zgięcia.
+        :param ankle_spread: Rozstaw kostek w osi X.
+        """
         if knee_angle is None:
             return self.reps, self.stage
 
+        # Stan UP (Wyprost)
         if knee_angle > self.ANGLE_THRESHOLD_UP:
             if self.stage == "DOWN":
                 if not self.current_rep_failed:
@@ -37,27 +46,31 @@ class TrainerLogic:
                 self.stage = "UP"
                 self.current_rep_failed = False
 
+        # Stan DOWN (Zejście)
         elif knee_angle < self.ANGLE_THRESHOLD_DOWN:
-            if self.stage == "UP":
-                self.stage = "DOWN"
-                self.current_rep_failed = False
+            # NOWOŚĆ: Sprawdzamy czy to nie jest oszustwo (np. Skip A)
+            if ankle_spread > self.MIN_ANKLE_SPREAD:
+                if self.stage == "UP":
+                    self.stage = "DOWN"
+                    self.current_rep_failed = False
+            else:
+                # Jeśli kąt jest dobry, ale nogi są wąsko -> to nie jest wykrok!
+                # Możemy opcjonalnie wypisać debug, że wykryto "oszustwo"
+                pass
 
         return self.reps, self.stage
 
     def check_valgus(self, deviation):
-        """Analiza koślawienia kolana."""
         if abs(deviation) > self.VALGUS_THRESHOLD:
             return True, "ZLE! (KOLANO)", (0, 0, 255)
         return False, "OK", (0, 255, 0)
 
     def check_torso(self, torso_angle):
-        """Analiza pochylenia pleców."""
         if torso_angle > self.TORSO_THRESHOLD:
             return True, "PLECY!", (0, 0, 255)
         return False, "OK", (0, 255, 0)
 
     def check_knee_forward(self, shin_angle):
-        """Analiza wysunięcia kolana (kąt piszczeli)."""
         if shin_angle > self.SHIN_THRESHOLD:
             return True, "KOLANO (PRZOD)!", (0, 0, 255)
         return False, "OK", (0, 255, 0)
