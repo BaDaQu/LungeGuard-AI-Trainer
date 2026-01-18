@@ -8,3 +8,4 @@ pyttsx3
 pyaudio
 Pillow
 vosk
+matplotlib
