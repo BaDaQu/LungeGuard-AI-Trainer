@@ -2,10 +2,14 @@ import customtkinter as ctk
 from PIL import Image
 import threading
 import sys
-import queue  # NOWOŚĆ
+import queue
 from datetime import datetime
 from src.database.db_manager import DatabaseManager
 from src.logic.training_loop import run_training
+
+# --- MATPLOTLIB ---
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 
 class AppUI:
@@ -15,15 +19,15 @@ class AppUI:
 
         self.root = ctk.CTk()
         self.root.title("LungeGuard AI Trainer")
-        self.root.geometry("1100x800")  # Zwiększone dla paska sterowania
+        self.root.geometry("1100x800")
 
         self.db = DatabaseManager()
         self.users_map = {}
 
-        # Komunikacja z wątkiem
         self.stop_event = threading.Event()
-        self.command_queue = queue.Queue()  # Kolejka na przyciski
+        self.command_queue = queue.Queue()
         self.training_thread = None
+        self.report_data = None  # Tu przechowamy dane do wykresu
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -35,15 +39,16 @@ class AppUI:
 
         self.show_dashboard()
 
+    # ... (Metody _init_dashboard_view, _init_training_view, _setup_settings_tab, _setup_history_tab BEZ ZMIAN) ...
+    # SKOPIUJ JE Z POPRZEDNIEJ WERSJI, SĄ OK. WKLEJAM TYLKO TE ZMIENIONE:
+
     def _init_dashboard_view(self):
         self.frame_dashboard = ctk.CTkFrame(self.main_container, fg_color="transparent")
-
         ctk.CTkLabel(self.frame_dashboard, text="LungeGuard", font=("Roboto", 40, "bold")).pack(pady=20)
 
         # Config
         config_frame = ctk.CTkFrame(self.frame_dashboard)
         config_frame.pack(pady=5, padx=20, fill="x")
-
         row1 = ctk.CTkFrame(config_frame, fg_color="transparent")
         row1.pack(fill="x", pady=10, padx=10)
         ctk.CTkLabel(row1, text="Użytkownik:", font=("Arial", 16)).pack(side="left")
@@ -59,7 +64,7 @@ class AppUI:
         self.tab_settings = self.tabview.add("Ustawienia")
         self.tab_history = self.tabview.add("Historia")
 
-        # Tab: Start
+        # Start Tab
         lbl_ip = ctk.CTkLabel(self.tab_train, text="IP Kamery Bocznej (Telefon):")
         lbl_ip.pack(pady=(20, 5))
         self.entry_ip = ctk.CTkEntry(self.tab_train, placeholder_text="http://...", width=350)
@@ -71,11 +76,8 @@ class AppUI:
                                        command=self._start_session)
         self.btn_start.pack(pady=40, padx=60, fill="x")
 
-        # Tab: Settings
         self._setup_settings_tab()
-        # Tab: History
         self._setup_history_tab()
-
         self.lbl_status = ctk.CTkLabel(self.frame_dashboard, text="Gotowy.", text_color="gray")
         self.lbl_status.pack(pady=5)
 
@@ -102,8 +104,6 @@ class AppUI:
 
     def _init_training_view(self):
         self.frame_training = ctk.CTkFrame(self.main_container, fg_color="transparent")
-
-        # Pasek górny
         top_bar = ctk.CTkFrame(self.frame_training, height=50)
         top_bar.pack(fill="x", padx=10, pady=5)
         ctk.CTkLabel(top_bar, text="SESJA AKTYWNA", font=("Roboto", 20, "bold"), text_color="red").pack(side="left",
@@ -112,7 +112,6 @@ class AppUI:
                                       font=("Roboto", 14, "bold"), command=self._stop_session)
         self.btn_back.pack(side="right", padx=20, pady=5)
 
-        # Wideo
         self.video_container = ctk.CTkFrame(self.frame_training, fg_color="black")
         self.video_container.pack(fill="both", expand=True, padx=10, pady=5)
         self.video_container.grid_columnconfigure(0, weight=1, uniform="group1")
@@ -123,27 +122,26 @@ class AppUI:
         self.lbl_cam_side = ctk.CTkLabel(self.video_container, text="Kamera Boczna", font=("Arial", 16))
         self.lbl_cam_side.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
 
-        # --- NOWOŚĆ: PASEK STEROWANIA (PILOT) ---
         control_bar = ctk.CTkFrame(self.frame_training, height=60)
         control_bar.pack(fill="x", padx=10, pady=10, side="bottom")
+        ctk.CTkButton(control_bar, text="START (Wznów)", fg_color="green",
+                      command=lambda: self.command_queue.put("START")).pack(side="left", padx=20, expand=True)
+        ctk.CTkButton(control_bar, text="PAUZA", fg_color="orange",
+                      command=lambda: self.command_queue.put("STOP")).pack(side="left", padx=20, expand=True)
+        ctk.CTkButton(control_bar, text="RESET LICZNIKA", fg_color="gray",
+                      command=lambda: self.command_queue.put("RESET")).pack(side="left", padx=20, expand=True)
 
-        # Guziki
-        btn_start_manual = ctk.CTkButton(control_bar, text="START (Wznów)", fg_color="green",
-                                         command=lambda: self.command_queue.put("START"))
-        btn_start_manual.pack(side="left", padx=20, pady=10, expand=True)
-
-        btn_pause_manual = ctk.CTkButton(control_bar, text="PAUZA", fg_color="orange",
-                                         command=lambda: self.command_queue.put("STOP"))
-        btn_pause_manual.pack(side="left", padx=20, pady=10, expand=True)
-
-        btn_reset_manual = ctk.CTkButton(control_bar, text="RESET LICZNIKA", fg_color="gray",
-                                         command=lambda: self.command_queue.put("RESET"))
-        btn_reset_manual.pack(side="left", padx=20, pady=10, expand=True)
+    # --- ZMIANY W METODACH STERUJĄCYCH ---
 
     def show_dashboard(self):
         self.frame_training.pack_forget()
         self.frame_dashboard.pack(fill="both", expand=True)
         self._refresh_user_list()
+
+        # Jeśli mamy raport z zakończonej sesji, pokaż go
+        if self.report_data:
+            self._show_summary_window(self.report_data)
+            self.report_data = None
 
     def show_training(self):
         self.frame_dashboard.pack_forget()
@@ -155,22 +153,13 @@ class AppUI:
         name = self.user_var.get()
         ip = self.entry_ip.get()
         if name not in self.users_map: return
-
         user_id = self.users_map[name]
-        config = {
-            "difficulty": self.diff_var.get(),
-            "audio": self.audio_var.get(),
-            "voice": self.voice_var.get()
-        }
 
+        config = {"difficulty": self.diff_var.get(), "audio": self.audio_var.get(), "voice": self.voice_var.get()}
         self.show_training()
         self.stop_event.clear()
+        with self.command_queue.mutex: self.command_queue.queue.clear()
 
-        # Czyszczenie kolejki komend przed startem
-        with self.command_queue.mutex:
-            self.command_queue.queue.clear()
-
-        # Przekazujemy command_queue do wątku
         self.training_thread = threading.Thread(
             target=run_training,
             args=(user_id, ip, self.stop_event, self._update_video_callback, config, self.command_queue),
@@ -179,29 +168,33 @@ class AppUI:
         self.training_thread.start()
 
     def _stop_session(self):
-        if self.training_thread and self.training_thread.is_alive():
-            self.stop_event.set()
-        self.show_dashboard()
-        self.lbl_status.configure(text="Trening zakończony.", text_color="green")
+        """Wymusza zatrzymanie przez kolejkę (żeby thread mógł wysłać raport)."""
+        self.command_queue.put("EXIT")
 
-    def _update_video_callback(self, img_front, img_side, status):
-        if self.stop_event.is_set(): return
+    def _update_video_callback(self, img_front, img_side, status, data=None):
+        if self.stop_event.is_set() and status != "SESSION_DONE": return
+
+        # --- ODBIÓR RAPORTU ---
         if status == "SESSION_DONE":
-            self.root.after(0, self._stop_session)
+            self.report_data = data  # Zapisz dane do wyświetlenia
+            self.stop_event.set()  # Zatrzymaj pętlę (safety)
+            self.root.after(0, self.show_dashboard)
             return
+
+        if status == "EXIT_APP":
+            self.root.after(0, self._on_close)
+            return
+
         self.root.after(0, lambda: self._update_ui_on_main(img_front, img_side))
 
     def _update_ui_on_main(self, img_front, img_side):
         if not self.lbl_cam_front.winfo_exists() or self.stop_event.is_set(): return
 
-        # Obliczenia rozmiaru
         cw = self.video_container.winfo_width()
         ch = self.video_container.winfo_height()
         tw = max((cw // 2) - 10, 320)
         th = int(tw * 0.75)
-        if th > ch - 10:
-            th = ch - 10
-            tw = int(th * 1.33)
+        if th > ch - 10: th = ch - 10; tw = int(th * 1.33)
 
         if img_front is not None:
             cimg = ctk.CTkImage(light_image=Image.fromarray(img_front), size=(tw, th))
@@ -213,7 +206,57 @@ class AppUI:
             self.lbl_cam_side.configure(image=cimg, text="")
             self.lbl_cam_side.image = cimg
 
-    # Metody pomocnicze (DB/Users) bez zmian
+    def _show_summary_window(self, data):
+        if not data or not data["angles"]: return
+
+        # Nowe okno
+        win = ctk.CTkToplevel(self.root)
+        win.title("Podsumowanie Treningu")
+        win.geometry("800x600")
+
+        ctk.CTkLabel(win, text="Wykres Kąta Kolana (Bok)", font=("Roboto", 20, "bold")).pack(pady=10)
+
+        # Rozpakowanie danych
+        times = [d[0] for d in data["angles"]]
+        values = [d[1] for d in data["angles"]]
+
+        # Wykres
+        fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+        # Rysujemy linię (zorder=1 = na spodzie)
+        ax.plot(times, values, label="Kąt Kolana", color="blue", linewidth=2, zorder=1)
+
+        # --- FIX: Rysowanie błędów NA LINII ---
+        if data["errors"]:
+            err_times = [e[0] for e in data["errors"]]
+            err_y = []
+
+            # Dla każdego błędu szukamy, jaki był wtedy kąt kolana
+            if len(times) > 0:
+                for et in err_times:
+                    # Znajdź indeks w tablicy czasu, który jest najbliżej czasu błędu
+                    closest_idx = min(range(len(times)), key=lambda i: abs(times[i] - et))
+                    err_y.append(values[closest_idx])
+
+                # Rysujemy kropki (zorder=5 = na wierzchu, s=60 = duże)
+                ax.scatter(err_times, err_y, color="red", s=60, label="Błędy", zorder=5, marker='o', edgecolors='black')
+
+        ax.set_xlabel("Czas (s)")
+        ax.set_ylabel("Kąt (stopnie)")
+        ax.grid(True)
+        ax.legend()
+
+        # Linie progowe
+        ax.axhline(y=95, color='green', linestyle='--', alpha=0.5, label="Próg Dół")
+        ax.axhline(y=160, color='orange', linestyle='--', alpha=0.5, label="Próg Góra")
+
+        # Osadzenie
+        canvas = FigureCanvasTkAgg(fig, master=win)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
+
+        ctk.CTkButton(win, text="Zamknij", command=win.destroy).pack(pady=10)
+
+    # --- Reszta metod (Users/History) ---
     def _refresh_user_list(self):
         users = self.db.get_users()
         self.users_map = {name: uid for uid, name in users}
