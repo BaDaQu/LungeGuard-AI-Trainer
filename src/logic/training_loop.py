@@ -1,5 +1,6 @@
 import cv2
 import time
+import numpy as np
 from src.utils.camera_handler import CameraHandler
 from src.utils.landmark_smoother import LandmarkSmoother
 from src.utils.environment_check import EnvironmentCheck
@@ -10,30 +11,61 @@ from src.logic.skeleton_processor import SkeletonProcessor
 from src.logic.trainer_logic import TrainerLogic
 from src.database.db_manager import DatabaseManager
 
+# --- KOLORY ---
+COL_WHITE = (255, 255, 255)
+COL_GREEN = (0, 255, 0)
+COL_RED = (0, 0, 255)
+COL_YELLOW = (0, 255, 255)
+COL_BLACK_BG = (40, 40, 40)
 
-def run_training(user_id, side_camera_ip):
-    """
-    Główna pętla treningowa uruchamiana z przycisku w GUI.
-    """
-    print(f"--- START TRENINGU (User ID: {user_id}, IP: {side_camera_ip}) ---")
 
-    # Inicjalizacja Bazy Danych i Sesji
+def draw_ui_header(frame, title, status_active, left_info, right_info=""):
+    """Rysuje pasek statusu."""
+    h, w, _ = frame.shape
+    header_h = 60
+    cv2.rectangle(frame, (0, 0), (w, header_h), COL_BLACK_BG, cv2.FILLED)
+
+    status_text = "AKTYWNY" if status_active else "PAUZA"
+    status_col = COL_GREEN if status_active else COL_YELLOW
+    (tw, th), _ = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_TRIPLEX, 0.8, 2)
+    center_x = int((w - tw) / 2)
+    cv2.putText(frame, status_text, (center_x, 40), cv2.FONT_HERSHEY_TRIPLEX, 0.8, status_col, 2)
+
+    info_col = COL_GREEN if "OK" in left_info else COL_RED
+    cv2.putText(frame, left_info, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, info_col, 1)
+
+    if right_info:
+        (rw, _), _ = cv2.getTextSize(right_info, cv2.FONT_HERSHEY_TRIPLEX, 1.0, 2)
+        cv2.putText(frame, right_info, (w - rw - 20, 42), cv2.FONT_HERSHEY_TRIPLEX, 1.0, COL_WHITE, 2)
+    cv2.line(frame, (0, header_h), (w, header_h), (100, 100, 100), 1)
+
+
+def draw_label(frame, text, x, y, color=COL_WHITE, bg_color=(0, 0, 0)):
+    """Rysuje tekst z tłem."""
+    (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+    cv2.rectangle(frame, (x, y - th - 5), (x + tw + 6, y + base), bg_color, cv2.FILLED)
+    cv2.putText(frame, text, (x + 3, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+
+def run_training(user_id, side_camera_ip, stop_event, gui_callback):
+    """Pętla treningowa."""
+    print(f"--- START TRENINGU (User: {user_id}) ---")
+
     db = DatabaseManager()
     session_id = db.start_session(user_id)
 
-    # Inicjalizacja Sprzętu
+    # Sprzęt
     cam_front = CameraHandler(source=0, name="FRONT", width=640, height=480)
     cam_side = CameraHandler(source=side_camera_ip, name="SIDE", width=640, height=480)
 
-    # Inicjalizacja Logiki
-    detector_front = PoseDetector(complexity=1)
-    detector_side = PoseDetector(complexity=1)
+    detector_front = PoseDetector(complexity=0)
+    detector_side = PoseDetector(complexity=0)
     smoother_front = LandmarkSmoother(alpha=0.65)
     smoother_side = LandmarkSmoother(alpha=0.65)
+
     processor = SkeletonProcessor()
     trainer = TrainerLogic()
 
-    # Audio & Voice
     audio = AudioManager()
     audio.start()
     voice = VoiceInput()
@@ -42,27 +74,33 @@ def run_training(user_id, side_camera_ip):
     cam_front.start()
     cam_side.start()
 
-    # Zmienne stanu
     is_training_active = False
     frame_count = 0
-    cached_light_msg = ""
-    cached_dist_front = ""
-    cached_dist_side = ""
+    cached_light_msg = "SWIATLO OK"
+    cached_dist_front = "DYSTANS OK"
+    cached_dist_side = "DYSTANS OK"
     last_reps_count = 0
 
+    # --- NOWOŚĆ: LIMIT ZAPISU DO BAZY ---
+    # Słownik przechowujący czas ostatniego zapisu danego błędu
+    last_db_log_time = {}
+    DB_LOG_COOLDOWN = 2.0  # Zapisuj ten sam błąd max raz na 2 sekundy
+
     try:
-        while True:
+        while not stop_event.is_set():
             frame_front = cam_front.get_frame()
             frame_side = cam_side.get_frame()
 
             frame_count += 1
             do_heavy_check = (frame_count % 30 == 0)
+            current_time = time.time()
 
-            # --- Obsługa Komend Głosowych ---
+            # --- GŁOS ---
             cmd = voice.get_command()
             if cmd == "EXIT":
                 audio.speak("Do widzenia", force=True)
-                time.sleep(0.1)
+                time.sleep(1.5)
+                if gui_callback: gui_callback(None, None, "SESSION_DONE")
                 break
             elif cmd == "START":
                 if not is_training_active:
@@ -79,31 +117,23 @@ def run_training(user_id, side_camera_ip):
                 is_training_active = False
                 audio.speak("Licznik wyzerowany", force=True)
 
-            # --- ANALIZA FRONT ---
+            # --- FRONT ---
             if frame_front is not None:
                 frame_front = cv2.flip(frame_front, 1)
                 h, w, _ = frame_front.shape
 
-                # Status
-                status_text = "AKTYWNY" if is_training_active else "PAUZA"
-                col = (0, 255, 0) if is_training_active else (0, 0, 255)
-                cv2.putText(frame_front, status_text, (w - 150, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, col, 2)
-
-                if do_heavy_check or cached_light_msg == "":
+                if do_heavy_check or cached_light_msg == "SWIATLO OK":
                     _, cached_light_msg = EnvironmentCheck.check_brightness(frame_front)
-                if "OK" not in cached_light_msg:
-                    cv2.putText(frame_front, cached_light_msg, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255),
-                                2)
 
                 detector_front.find_pose(frame_front, draw=False)
                 raw_lm = detector_front.get_landmarks()
                 lm_front = smoother_front.smooth(raw_lm)
 
-                # Walidacja dystansu (Front)
-                if (do_heavy_check or cached_dist_front == "") and lm_front:
+                if (do_heavy_check or cached_dist_front == "DYSTANS OK") and lm_front:
                     _, cached_dist_front = EnvironmentCheck.check_distance(lm_front)
-                cv2.putText(frame_front, f"DST: {cached_dist_front}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (0, 255, 0), 1)
+
+                draw_ui_header(frame_front, "FRONT", is_training_active,
+                               cached_light_msg if "OK" not in cached_light_msg else cached_dist_front)
 
                 front_data = processor.process_front_view(lm_front)
                 if front_data and is_training_active:
@@ -115,86 +145,91 @@ def run_training(user_id, side_camera_ip):
                     if is_err:
                         trainer.mark_error()
                         audio.speak("Kolano na zewnątrz")
-                        # Logowanie błędu do bazy
-                        db.log_error(session_id, "Valgus")
 
-                    cv2.circle(frame_front, (cx, cy), 12, col, cv2.FILLED)
-                    cv2.putText(frame_front, msg, (cx + 20, cy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.8, col, 2)
+                        # --- LIMIT ZAPISU DO BAZY ---
+                        last_log = last_db_log_time.get("Valgus", 0)
+                        if current_time - last_log > DB_LOG_COOLDOWN:
+                            db.log_error(session_id, "Valgus")
+                            last_db_log_time["Valgus"] = current_time
+                        # ----------------------------
 
-                cv2.imshow("LungeGuard - FRONT", frame_front)
+                    cv2.circle(frame_front, (cx, cy), 15, col, cv2.FILLED)
+                    cv2.circle(frame_front, (cx, cy), 17, COL_WHITE, 2)
+                    if is_err: draw_label(frame_front, msg, cx + 25, cy, col)
 
-            # --- ANALIZA SIDE ---
+            # --- SIDE ---
             if frame_side is not None:
                 h, w, _ = frame_side.shape
-
                 detector_side.find_pose(frame_side, draw=False)
                 raw_lm_s = detector_side.get_landmarks()
                 lm_side = smoother_side.smooth(raw_lm_s)
 
-                if (do_heavy_check or cached_dist_side == "") and lm_side:
+                if (do_heavy_check or cached_dist_side == "DYSTANS OK") and lm_side:
                     _, cached_dist_side = EnvironmentCheck.check_distance(lm_side)
-                cv2.putText(frame_side, f"DST: {cached_dist_side}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                            (0, 255, 0), 1)
 
                 side_data = processor.process_side_view(lm_side, side="left")
+                reps_text = f"REPS: {trainer.reps}"
+                draw_ui_header(frame_side, "SIDE", is_training_active, cached_dist_side, reps_text)
+
                 if side_data:
                     knee_ang = side_data["knee_angle"]
                     torso_ang = side_data["torso_angle"]
                     shin_ang = side_data["shin_angle"]
                     ank_spread = side_data["ankle_spread"]
+                    hip_y = side_data["hip_y"]
 
-                    # Rysowanie linii
                     kx, ky = side_data["knee_point"]
                     sx, sy = side_data["shoulder_point"]
                     hx, hy = side_data["hip_point"]
                     ax, ay = side_data["ankle_point"]
 
-                    cv2.line(frame_side, (int(sx * w), int(sy * h)), (int(hx * w), int(hy * h)), (255, 255, 0),
-                             3)  # Plecy
-                    cv2.line(frame_side, (int(hx * w), int(hy * h)), (int(kx * w), int(ky * h)), (255, 255, 255),
-                             2)  # Udo
-                    cv2.line(frame_side, (int(kx * w), int(ky * h)), (int(ax * w), int(ay * h)), (255, 255, 0),
-                             3)  # Piszczel
+                    cv2.line(frame_side, (int(sx * w), int(sy * h)), (int(hx * w), int(hy * h)), COL_YELLOW, 3)
+                    cv2.line(frame_side, (int(hx * w), int(hy * h)), (int(kx * w), int(ky * h)), COL_WHITE, 2)
+                    cv2.line(frame_side, (int(kx * w), int(ky * h)), (int(ax * w), int(ay * h)), COL_YELLOW, 3)
+                    draw_label(frame_side, f"{int(knee_ang)}", int(kx * w) + 15, int(ky * h), COL_WHITE, (0, 0, 0))
 
                     if is_training_active:
                         is_torso_err, _, _ = trainer.check_torso(torso_ang)
-                        is_knee_err, _, _ = trainer.check_knee_forward(shin_ang)
+                        is_knee_err, _, _ = trainer.check_knee_forward(shin_ang, knee_ang)
 
                         if is_torso_err:
                             trainer.mark_error()
                             audio.speak("Wyprostuj plecy")
-                            db.log_error(session_id, "Torso Inclination")
+                            draw_label(frame_side, "PLECY!", int(hx * w), int(hy * h) - 20, COL_RED)
+
+                            # --- LIMIT ZAPISU (TORSO) ---
+                            last_log = last_db_log_time.get("Torso", 0)
+                            if current_time - last_log > DB_LOG_COOLDOWN:
+                                db.log_error(session_id, "Torso Inclination")
+                                last_db_log_time["Torso"] = current_time
+
                         if is_knee_err:
                             trainer.mark_error()
                             audio.speak("Kolano do tyłu")
-                            db.log_error(session_id, "Knee Over Toe")
+                            draw_label(frame_side, "KOLANO!", int(ax * w), int(ay * h), COL_RED)
 
-                        reps, stage = trainer.update_reps(knee_ang, ank_spread)
+                            # --- LIMIT ZAPISU (KNEE) ---
+                            last_log = last_db_log_time.get("Knee", 0)
+                            if current_time - last_log > DB_LOG_COOLDOWN:
+                                db.log_error(session_id, "Knee Over Toe")
+                                last_db_log_time["Knee"] = current_time
+
+                        reps, stage = trainer.update_reps(knee_ang, ank_spread, hip_y)
                         if reps > last_reps_count:
                             audio.speak(str(reps), force=True)
                             last_reps_count = reps
 
-                        # Panel Licznika
-                        bg_col = (0, 0, 255) if trainer.current_rep_failed and stage == "DOWN" else (0, 200, 0)
-                        cv2.rectangle(frame_side, (0, 30), (180, 110), bg_col, cv2.FILLED)
-                        cv2.putText(frame_side, f"REPS: {reps}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255),
-                                    2)
-                        cv2.putText(frame_side, stage, (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            if gui_callback:
+                img_front_rgb = cv2.cvtColor(frame_front, cv2.COLOR_BGR2RGB) if frame_front is not None else None
+                img_side_rgb = cv2.cvtColor(frame_side, cv2.COLOR_BGR2RGB) if frame_side is not None else None
+                gui_callback(img_front_rgb, img_side_rgb, "RUNNING")
 
-                cv2.imshow("LungeGuard - SIDE", frame_side)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-    except KeyboardInterrupt:
-        pass
+    except Exception as e:
+        print(f"THREAD ERROR: {e}")
     finally:
-        # Zapisanie wyników do bazy
         db.end_session(session_id, trainer.reps)
-        print(f"--- KONIEC TRENINGU. Zapisano {trainer.reps} powtórzeń. ---")
-
         voice.stop()
         audio.stop()
         cam_front.stop()
         cam_side.stop()
-        cv2.destroyAllWindows()
+        print("--- KONIEC SESJI ---")

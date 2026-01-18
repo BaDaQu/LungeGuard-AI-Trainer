@@ -44,38 +44,42 @@ class CameraHandler:
         self.thread.start()
 
     def _update(self):
-        """
-        Wątek pobierający.
-        AGRESYWNA OPTYMALIZACJA: Zawsze czytamy najnowszą klatkę, pomijając stare.
-        """
+        """Wątek pobierający (Wersja 'Pancerna' - odporna na crash przy zamykaniu)."""
         while self.running:
-            if self.capture.isOpened():
-                # --- KLUCZOWA ZMIANA ---
-                # Grab() pobiera klatkę z bufora sprzętowego.
-                # Robimy to, żeby 'przewinąć' bufor do końca.
-                self.capture.grab()
+            try:
+                # Sprawdzamy czy kamera jest otwarta PRZED próbą pobrania
+                if self.capture is not None and self.capture.isOpened():
 
-                # Retrieve() dekoduje obraz. Robimy to raz na pętlę.
-                ret, raw_frame = self.capture.retrieve()
-
-                if ret:
+                    # GRAB: Opakowany w try-except, bo to tutaj leci błąd C++
                     try:
-                        # Skalowanie w wątku (najszybsza metoda INTER_NEAREST)
-                        resized_frame = cv2.resize(
-                            raw_frame,
-                            (self.target_width, self.target_height),
-                            interpolation=cv2.INTER_NEAREST
-                        )
-
-                        with self.lock:
-                            self.frame = resized_frame
+                        self.capture.grab()
                     except Exception:
-                        pass
+                        # Jeśli grab się nie uda (np. kamera zamykana), przerywamy pętlę
+                        break
+
+                    # RETRIEVE
+                    ret, raw_frame = self.capture.retrieve()
+
+                    if ret:
+                        try:
+                            # Skalowanie
+                            resized_frame = cv2.resize(
+                                raw_frame,
+                                (self.target_width, self.target_height),
+                                interpolation=cv2.INTER_NEAREST
+                            )
+                            with self.lock:
+                                self.frame = resized_frame
+                        except Exception:
+                            pass
+                    else:
+                        time.sleep(0.01)
                 else:
-                    # Jeśli zgubiliśmy sygnał, krótki sleep żeby nie spalić CPU
-                    time.sleep(0.01)
-            else:
-                time.sleep(0.1)
+                    time.sleep(0.1)
+
+            except Exception as e:
+                print(f"[{self.name}] Thread Error: {e}")
+                break
 
     def get_frame(self):
         with self.lock:
