@@ -1,5 +1,6 @@
 import cv2
 import time
+import queue  # Potrzebne do obsługi wyjątków Empty
 import numpy as np
 from src.utils.camera_handler import CameraHandler
 from src.utils.landmark_smoother import LandmarkSmoother
@@ -11,7 +12,7 @@ from src.logic.skeleton_processor import SkeletonProcessor
 from src.logic.trainer_logic import TrainerLogic
 from src.database.db_manager import DatabaseManager
 
-# --- KOLORY ---
+# Kolory
 COL_WHITE = (255, 255, 255)
 COL_GREEN = (0, 255, 0)
 COL_RED = (0, 0, 255)
@@ -20,7 +21,6 @@ COL_BLACK_BG = (40, 40, 40)
 
 
 def draw_ui_header(frame, title, status_active, left_info, right_info=""):
-    """Rysuje pasek statusu."""
     h, w, _ = frame.shape
     header_h = 60
     cv2.rectangle(frame, (0, 0), (w, header_h), COL_BLACK_BG, cv2.FILLED)
@@ -41,20 +41,21 @@ def draw_ui_header(frame, title, status_active, left_info, right_info=""):
 
 
 def draw_label(frame, text, x, y, color=COL_WHITE, bg_color=(0, 0, 0)):
-    """Rysuje tekst z tłem."""
     (tw, th), base = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
     cv2.rectangle(frame, (x, y - th - 5), (x + tw + 6, y + base), bg_color, cv2.FILLED)
     cv2.putText(frame, text, (x + 3, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
 
-def run_training(user_id, side_camera_ip, stop_event, gui_callback):
-    """Pętla treningowa."""
-    print(f"--- START TRENINGU (User: {user_id}) ---")
+def run_training(user_id, side_camera_ip, stop_event, gui_callback, config, command_queue):
+    """
+    Pętla treningowa.
+    :param command_queue: Kolejka z komendami z GUI (przyciski).
+    """
+    print(f"--- START (User: {user_id}, Config: {config}) ---")
 
     db = DatabaseManager()
     session_id = db.start_session(user_id)
 
-    # Sprzęt
     cam_front = CameraHandler(source=0, name="FRONT", width=640, height=480)
     cam_side = CameraHandler(source=side_camera_ip, name="SIDE", width=640, height=480)
 
@@ -62,14 +63,20 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
     detector_side = PoseDetector(complexity=0)
     smoother_front = LandmarkSmoother(alpha=0.65)
     smoother_side = LandmarkSmoother(alpha=0.65)
-
     processor = SkeletonProcessor()
-    trainer = TrainerLogic()
 
-    audio = AudioManager()
-    audio.start()
-    voice = VoiceInput()
-    voice.start()
+    trainer = TrainerLogic()
+    trainer.set_difficulty(config.get("difficulty", "Medium"))
+
+    audio = None
+    if config.get("audio", True):
+        audio = AudioManager()
+        audio.start()
+
+    voice = None
+    if config.get("voice", True):
+        voice = VoiceInput()
+        voice.start()
 
     cam_front.start()
     cam_side.start()
@@ -81,10 +88,8 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
     cached_dist_side = "DYSTANS OK"
     last_reps_count = 0
 
-    # --- NOWOŚĆ: LIMIT ZAPISU DO BAZY ---
-    # Słownik przechowujący czas ostatniego zapisu danego błędu
     last_db_log_time = {}
-    DB_LOG_COOLDOWN = 2.0  # Zapisuj ten sam błąd max raz na 2 sekundy
+    DB_LOG_COOLDOWN = 2.0
 
     try:
         while not stop_event.is_set():
@@ -95,29 +100,48 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
             do_heavy_check = (frame_count % 30 == 0)
             current_time = time.time()
 
-            # --- GŁOS ---
-            cmd = voice.get_command()
-            if cmd == "EXIT":
-                audio.speak("Do widzenia", force=True)
-                time.sleep(1.5)
-                if gui_callback: gui_callback(None, None, "SESSION_DONE")
-                break
-            elif cmd == "START":
-                if not is_training_active:
-                    is_training_active = True
-                    audio.speak("Trening rozpoczęty", force=True)
-            elif cmd == "STOP":
-                if is_training_active:
-                    is_training_active = False
-                    audio.speak("Pauza", force=True)
-            elif cmd == "RESET":
-                trainer.reps = 0
-                trainer.stage = "UP"
-                last_reps_count = 0
-                is_training_active = False
-                audio.speak("Licznik wyzerowany", force=True)
+            # --- ODCZYT KOMEND (GŁOS + GUI) ---
+            cmd = None
 
-            # --- FRONT ---
+            # 1. Sprawdź kolejkę GUI (ma priorytet nad głosem, bo to świadome kliknięcie)
+            try:
+                if not command_queue.empty():
+                    cmd = command_queue.get_nowait()
+            except queue.Empty:
+                pass
+
+            # 2. Jeśli brak komendy z GUI, sprawdź głos (jeśli włączony)
+            if not cmd and voice:
+                cmd = voice.get_command()
+
+            # --- WYKONANIE KOMENDY ---
+            if cmd:
+                print(f"KOMENDA: {cmd}")
+
+                if cmd == "EXIT":
+                    if audio: audio.speak("Do widzenia", force=True)
+                    time.sleep(1.5)
+                    if gui_callback: gui_callback(None, None, "SESSION_DONE")
+                    break
+                elif cmd == "START":
+                    if not is_training_active:
+                        is_training_active = True
+                        if audio: audio.speak("Trening rozpoczęty", force=True)
+                elif cmd == "STOP":
+                    if is_training_active:
+                        is_training_active = False
+                        if audio: audio.speak("Pauza", force=True)
+                elif cmd == "RESET":
+                    trainer.reps = 0
+                    trainer.stage = "UP"
+                    last_reps_count = 0
+                    is_training_active = False
+                    if audio: audio.speak("Licznik wyzerowany", force=True)
+
+            # --- ANALIZA WIDEO ---
+            # (Reszta kodu bez zmian - kopiuj z poprzedniej wersji lub zostaw tak jak jest)
+            # DLA PEWNOŚCI WKLEJAM SKRÓCONĄ WERSJĘ DO KOPIOWANIA:
+
             if frame_front is not None:
                 frame_front = cv2.flip(frame_front, 1)
                 h, w, _ = frame_front.shape
@@ -144,20 +168,16 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
                     is_err, msg, col = trainer.check_valgus(dev)
                     if is_err:
                         trainer.mark_error()
-                        audio.speak("Kolano na zewnątrz")
-
-                        # --- LIMIT ZAPISU DO BAZY ---
+                        if audio: audio.speak("Kolano na zewnątrz")
                         last_log = last_db_log_time.get("Valgus", 0)
                         if current_time - last_log > DB_LOG_COOLDOWN:
                             db.log_error(session_id, "Valgus")
                             last_db_log_time["Valgus"] = current_time
-                        # ----------------------------
 
                     cv2.circle(frame_front, (cx, cy), 15, col, cv2.FILLED)
                     cv2.circle(frame_front, (cx, cy), 17, COL_WHITE, 2)
                     if is_err: draw_label(frame_front, msg, cx + 25, cy, col)
 
-            # --- SIDE ---
             if frame_side is not None:
                 h, w, _ = frame_side.shape
                 detector_side.find_pose(frame_side, draw=False)
@@ -194,10 +214,9 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
 
                         if is_torso_err:
                             trainer.mark_error()
-                            audio.speak("Wyprostuj plecy")
+                            if audio: audio.speak("Wyprostuj plecy")
                             draw_label(frame_side, "PLECY!", int(hx * w), int(hy * h) - 20, COL_RED)
 
-                            # --- LIMIT ZAPISU (TORSO) ---
                             last_log = last_db_log_time.get("Torso", 0)
                             if current_time - last_log > DB_LOG_COOLDOWN:
                                 db.log_error(session_id, "Torso Inclination")
@@ -205,10 +224,9 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
 
                         if is_knee_err:
                             trainer.mark_error()
-                            audio.speak("Kolano do tyłu")
+                            if audio: audio.speak("Kolano do tyłu")
                             draw_label(frame_side, "KOLANO!", int(ax * w), int(ay * h), COL_RED)
 
-                            # --- LIMIT ZAPISU (KNEE) ---
                             last_log = last_db_log_time.get("Knee", 0)
                             if current_time - last_log > DB_LOG_COOLDOWN:
                                 db.log_error(session_id, "Knee Over Toe")
@@ -216,7 +234,7 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
 
                         reps, stage = trainer.update_reps(knee_ang, ank_spread, hip_y)
                         if reps > last_reps_count:
-                            audio.speak(str(reps), force=True)
+                            if audio: audio.speak(str(reps), force=True)
                             last_reps_count = reps
 
             if gui_callback:
@@ -228,8 +246,8 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback):
         print(f"THREAD ERROR: {e}")
     finally:
         db.end_session(session_id, trainer.reps)
-        voice.stop()
-        audio.stop()
+        if voice: voice.stop()
+        if audio: audio.stop()
         cam_front.stop()
         cam_side.stop()
         print("--- KONIEC SESJI ---")
