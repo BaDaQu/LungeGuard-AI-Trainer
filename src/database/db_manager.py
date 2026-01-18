@@ -1,27 +1,23 @@
 import sqlite3
 import os
+import json
 from datetime import datetime
 
 
 class DatabaseManager:
     def __init__(self, db_name="lungeguard.db"):
-        """
-        Manager lokalnej bazy danych SQLite.
-        Automatycznie tworzy strukturę tabel przy inicjalizacji.
-        """
-        # Upewniamy się, że folder database istnieje
         self.db_folder = "database"
         if not os.path.exists(self.db_folder):
             os.makedirs(self.db_folder)
 
         self.db_path = os.path.join(self.db_folder, db_name)
         self.create_tables()
+        self._migrate_tables()
 
     def get_connection(self):
         return sqlite3.connect(self.db_path)
 
     def create_tables(self):
-        """Tworzy strukturę bazy danych (Relacyjna)."""
         query_users = """
                       CREATE TABLE IF NOT EXISTS users \
                       ( \
@@ -41,7 +37,7 @@ class DatabaseManager:
                           CURRENT_TIMESTAMP
                       ); \
                       """
-
+        # Dodajemy graph_data do przechowywania wykresów
         query_sessions = """
                          CREATE TABLE IF NOT EXISTS sessions \
                          ( \
@@ -60,6 +56,10 @@ class DatabaseManager:
                              INTEGER \
                              DEFAULT \
                              0, \
+                             video_path \
+                             TEXT, \
+                             graph_data \
+                             TEXT, \
                              FOREIGN \
                              KEY \
                          ( \
@@ -70,7 +70,6 @@ class DatabaseManager:
                          )
                              ); \
                          """
-
         query_errors = """
                        CREATE TABLE IF NOT EXISTS error_logs \
                        ( \
@@ -104,46 +103,66 @@ class DatabaseManager:
             cursor.execute(query_sessions)
             cursor.execute(query_errors)
 
-    # --- METODY UŻYTKOWNIKA ---
+    def _migrate_tables(self):
+        """Aktualizacja bazy dla starszych wersji."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN video_path TEXT")
+        except:
+            pass
+        try:
+            # Nowa kolumna na dane wykresu
+            cursor.execute("ALTER TABLE sessions ADD COLUMN graph_data TEXT")
+        except:
+            pass
+        conn.commit()
+        conn.close()
 
     def add_user(self, name):
-        """Dodaje nowego użytkownika."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("INSERT INTO users (name) VALUES (?)", (name,))
                 return cursor.lastrowid
         except sqlite3.IntegrityError:
-            return None  # Użytkownik już istnieje
+            return None
 
     def get_users(self):
-        """Pobiera listę wszystkich użytkowników."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT id, name FROM users")
             return cursor.fetchall()
 
-    # --- METODY TRENINGOWE ---
-
     def start_session(self, user_id):
-        """Rozpoczyna nowy trening."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             now = datetime.now()
-            cursor.execute("INSERT INTO sessions (user_id, start_time, reps) VALUES (?, ?, 0)",
-                           (user_id, now))
-            return cursor.lastrowid  # Zwraca ID sesji
+            cursor.execute("INSERT INTO sessions (user_id, start_time, reps) VALUES (?, ?, 0)", (user_id, now))
+            return cursor.lastrowid
 
-    def end_session(self, session_id, total_reps):
-        """Kończy trening i zapisuje wynik."""
+    def end_session(self, session_id, total_reps, video_path=None, graph_data_dict=None):
+        """Zapisuje wynik sesji wraz z danymi wykresu (JSON)."""
+        graph_json = None
+        if graph_data_dict:
+            try:
+                graph_json = json.dumps(graph_data_dict)
+            except:
+                pass
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
             now = datetime.now()
-            cursor.execute("UPDATE sessions SET end_time = ?, reps = ? WHERE id = ?",
-                           (now, total_reps, session_id))
+            cursor.execute("""
+                           UPDATE sessions
+                           SET end_time   = ?,
+                               reps       = ?,
+                               video_path = ?,
+                               graph_data = ?
+                           WHERE id = ?
+                           """, (now, total_reps, video_path, graph_json, session_id))
 
     def log_error(self, session_id, error_type):
-        """Zapisuje wystąpienie błędu (np. 'Valgus')."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             now = datetime.now()
@@ -151,11 +170,11 @@ class DatabaseManager:
                            (session_id, error_type, now))
 
     def get_user_history(self, user_id):
-        """Pobiera historię treningów danego użytkownika."""
+        """Pobiera historię wraz z ścieżką wideo i danymi wykresu."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             query = """
-                    SELECT s.start_time, s.reps, COUNT(e.id) as error_count
+                    SELECT s.start_time, s.reps, COUNT(e.id) as error_count, s.video_path, s.graph_data
                     FROM sessions s
                              LEFT JOIN error_logs e ON s.id = e.session_id
                     WHERE s.user_id = ?

@@ -21,14 +21,14 @@ class CameraHandler:
 
         print(f"[{self.name}] Start: {self.source}")
         try:
-            # DSHOW dla Windows USB (szybki start)
             if isinstance(self.source, int):
+                # USB Camera
                 self.capture = cv2.VideoCapture(self.source, cv2.CAP_DSHOW)
-                self.capture.set(cv2.CAP_PROP_FPS, 30)
+                # --- ZMIANA: PRÓBA WYMUSZENIA 60 FPS ---
+                self.capture.set(cv2.CAP_PROP_FPS, 60)
             else:
                 # IP Camera
                 self.capture = cv2.VideoCapture(self.source)
-                # Ustawiamy minimalny bufor
                 self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
             if not self.capture.isOpened():
@@ -44,25 +44,19 @@ class CameraHandler:
         self.thread.start()
 
     def _update(self):
-        """Wątek pobierający (Wersja 'Pancerna' - odporna na crash przy zamykaniu)."""
         while self.running:
             try:
-                # Sprawdzamy czy kamera jest otwarta PRZED próbą pobrania
                 if self.capture is not None and self.capture.isOpened():
-
-                    # GRAB: Opakowany w try-except, bo to tutaj leci błąd C++
                     try:
                         self.capture.grab()
                     except Exception:
-                        # Jeśli grab się nie uda (np. kamera zamykana), przerywamy pętlę
                         break
 
-                    # RETRIEVE
                     ret, raw_frame = self.capture.retrieve()
 
                     if ret:
                         try:
-                            # Skalowanie
+                            # Skalowanie (szybkie)
                             resized_frame = cv2.resize(
                                 raw_frame,
                                 (self.target_width, self.target_height),
@@ -73,7 +67,7 @@ class CameraHandler:
                         except Exception:
                             pass
                     else:
-                        time.sleep(0.01)
+                        time.sleep(0.005)  # Krótszy sleep dla 60 FPS
                 else:
                     time.sleep(0.1)
 
