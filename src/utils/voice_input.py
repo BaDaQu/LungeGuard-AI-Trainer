@@ -9,24 +9,19 @@ from vosk import Model, KaldiRecognizer
 class VoiceInput:
     def __init__(self):
         """
-        Rozpoznawanie mowy OFFLINE (Vosk) z naprawioną ścieżką.
+        Rozpoznawanie mowy OFFLINE (Vosk).
+        Wersja ze stabilnym czyszczeniem bufora szumów.
         """
         self.is_running = False
         self.thread = None
         self.last_command = None
         self.last_trigger_time = 0
-        self.COOLDOWN = 0.5
+        self.COOLDOWN = 0.8  # Lekko zwiększony cooldown dla stabilności
 
-        # --- NAPRAWA ŚCIEŻKI (ABSOLUTE PATH) ---
-        # Pobieramy ścieżkę do tego pliku (voice_input.py)
+        # --- ŚCIEŻKA ABSOLUTNA ---
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        # Wychodzimy 2 piętra w górę: src/utils -> src -> ROOT
         project_root = os.path.dirname(os.path.dirname(current_dir))
-        # Sklejamy pełną ścieżkę do folderu model
         self.model_path = os.path.join(project_root, "model")
-
-        print(f"VOICE DEBUG: Szukam modelu w: {self.model_path}")
-        # ----------------------------------------
 
         if not os.path.exists(self.model_path):
             print(f"VOICE ERROR: Brak folderu '{self.model_path}'!")
@@ -46,71 +41,88 @@ class VoiceInput:
         self.is_running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)
         self.thread.start()
-        print("VOICE: Nasłuch aktywny (Tryb Szybki).")
+        print("VOICE: Nasłuch aktywny (Stabilny).")
 
     def _worker(self):
         p = pyaudio.PyAudio()
-        # Mniejszy bufor (2000 zamiast 4000) = szybsza reakcja
-        stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=2000)
-        stream.start_stream()
+        stream = None
 
-        # --- KLUCZOWA ZMIANA: GRAMATYKA ---
-        # Zmuszamy model, żeby słyszał TYLKO te słowa. Ignoruje szum i inne gadanie.
-        grammar = '["start", "stop", "pauza", "koniec", "reset", "trener"]'
-        rec = KaldiRecognizer(self.model, 16000, grammar)
+        try:
+            # Zwiększony bufor (4000) - stabilniej przy obciążonym CPU
+            stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000,
+                            input=True, frames_per_buffer=4000)
+            stream.start_stream()
 
-        while self.is_running:
-            try:
-                data = stream.read(2000, exception_on_overflow=False)
+            grammar = '["start", "stop", "pauza", "koniec", "reset", "trener", "wyjście", "zacznij"]'
+            rec = KaldiRecognizer(self.model, 16000, grammar)
 
-                # Vosk zwraca True (koniec zdania) lub False (w trakcie)
-                if rec.AcceptWaveform(data):
-                    # Pełny wynik (rzadziej używany przy szybkim sterowaniu)
+            while self.is_running:
+                try:
+                    data = stream.read(4000, exception_on_overflow=False)
+
+                    # 1. Sprawdzamy PEŁNY wynik (koniec zdania/cisza)
+                    # To kluczowe: AcceptWaveform czyści bufor Voska!
+                    if rec.AcceptWaveform(data):
+                        res = json.loads(rec.Result())
+                        text = res.get("text", "")
+                        if text:
+                            # Jeśli coś złapał na koniec zdania, też to obsłuż
+                            self._process_fast_command(text, rec)
+
+                    # 2. Sprawdzamy WYNIK CZĄSTKOWY (w trakcie mówienia)
+                    else:
+                        partial = json.loads(rec.PartialResult())
+                        text = partial.get("partial", "")
+                        if text:
+                            self._process_fast_command(text, rec)
+
+                except Exception:
+                    break
+
+        except Exception as e:
+            print(f"VOICE CRASH: {e}")
+
+        finally:
+            if stream:
+                try:
+                    stream.stop_stream()
+                    stream.close()
+                except:
                     pass
-                else:
-                    # --- KLUCZOWA ZMIANA: PARTIAL RESULTS ---
-                    # Czytamy to co słychać "teraz", zanim skończysz mówić
-                    partial_json = json.loads(rec.PartialResult())
-                    partial_text = partial_json.get("partial", "")
-
-                    if partial_text:
-                        self._process_fast_command(partial_text, rec)
-
-            except Exception:
-                break
-
-        stream.stop_stream()
-        stream.close()
-        p.terminate()
+            p.terminate()
+            print("VOICE: Wyłączono.")
 
     def _process_fast_command(self, text, rec):
-        """Analizuje tekst natychmiastowo."""
+        """Analizuje tekst."""
         now = time.time()
         if now - self.last_trigger_time < self.COOLDOWN:
             return
 
         cmd_detected = None
 
-        # 1. Priorytet: ZAMKNIĘCIE PROGRAMU
-        if "koniec" in text or "wyjście" in text:
-            cmd_detected = "EXIT"
+        if "stop" in text or "pauza" in text or "koniec" in text or "wyjście" in text:
+            # Rozróżnienie STOP od EXIT robimy w main.py na podstawie tekstu,
+            # ale tutaj upraszczamy do tokenów
+            if "koniec" in text or "wyjście" in text:
+                cmd_detected = "EXIT"
+            else:
+                cmd_detected = "STOP"
 
-        # 2. PAUZA TRENINGU (bez wyłączania apki)
-        elif "stop" in text or "pauza" in text or "zatrzymaj" in text:
-            cmd_detected = "STOP"
-
-        # 3. START
-        elif "start" in text or "zacznij" in text or "graj" in text:
+        elif "start" in text or "zacznij" in text or "trener" in text:
             cmd_detected = "START"
 
         elif "reset" in text:
             cmd_detected = "RESET"
 
         if cmd_detected:
-            print(f"VOICE (FAST): Wykryto -> {cmd_detected}")
+            print(f"VOICE: Wykryto -> {cmd_detected}")
             self.last_command = cmd_detected
             self.last_trigger_time = now
+
+            # AGRESYWNY RESET:
+            # Po wykryciu komendy czyścimy bufor, żeby nie "mielił" dalej tego samego dźwięku
             rec.Reset()
+
     def get_command(self):
         cmd = self.last_command
         self.last_command = None
@@ -118,5 +130,5 @@ class VoiceInput:
 
     def stop(self):
         self.is_running = False
-        if self.thread:
-            self.thread.join()
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
