@@ -62,8 +62,8 @@ def run_training(user_id, side_camera_ip, stop_event, gui_callback, config, comm
     cam_front = CameraHandler(source=0, name="FRONT", width=640, height=480)
     cam_side = CameraHandler(source=side_camera_ip, name="SIDE", width=640, height=480)
 
-    detector_front = PoseDetector(complexity=0)
-    detector_side = PoseDetector(complexity=0)
+    detector_front = PoseDetector(complexity=1)
+    detector_side = PoseDetector(complexity=1)
     smoother_front = LandmarkSmoother(alpha=0.65)
     smoother_side = LandmarkSmoother(alpha=0.65)
     processor = SkeletonProcessor()

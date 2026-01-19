@@ -10,16 +10,13 @@ class VoiceInput:
     def __init__(self):
         """
         Rozpoznawanie mowy OFFLINE (Vosk).
-        Tryb Hybrydowy: Maksymalna czułość gramatyki + ścisły filtr pewności.
+        Wersja finalna: Minimalna lista słów + Filtr pewności dla maksymalnej precyzji.
         """
         self.is_running = False
         self.thread = None
         self.last_command = None
         self.last_trigger_time = 0
         self.COOLDOWN = 1.0
-
-        # PROG PEWNOŚCI: 0.9 oznacza, że AI musi być niemal pewne, że to komenda.
-        # To zapobiega wyzwalaniu START/STOP podczas zwykłej rozmowy.
         self.MIN_CONFIDENCE = 0.90
 
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -43,7 +40,7 @@ class VoiceInput:
         self.is_running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)
         self.thread.start()
-        print("VOICE: Nasłuch aktywny (Stabilny + Czuły).")
+        print("VOICE: Nasłuch aktywny (Tryb Final).")
 
     def _worker(self):
         p = pyaudio.PyAudio()
@@ -53,22 +50,18 @@ class VoiceInput:
                             input=True, frames_per_buffer=2000)
             stream.start_stream()
 
-            # SZTYWNA GRAMATYKA = Najwyższa czułość na wybrane słowa
-            grammar = '["start", "zacznij", "stop", "pauza", "reset", "zeruj", "koniec", "wyjście", "[unk]"]'
+            # --- ZMIANA: Usunięto synonimy, żeby uniknąć błędów ---
+            grammar = '["start", "stop", "pauza", "reset", "koniec", "trener", "[unk]"]'
             rec = KaldiRecognizer(self.model, 16000, grammar)
-            rec.SetWords(True)  # Wymagane do pobrania 'conf' (pewności)
+            rec.SetWords(True)
 
             while self.is_running:
                 try:
                     data = stream.read(2000, exception_on_overflow=False)
-
                     if rec.AcceptWaveform(data):
-                        # Reagujemy tylko na PEŁNY WYNIK (po krótkiej ciszy)
-                        # To eliminuje lag i dublowanie z wyników cząstkowych
                         res = json.loads(rec.Result())
                         if "result" in res:
                             self._process_strict_logic(res["result"], rec)
-
                 except Exception:
                     break
         finally:
@@ -78,33 +71,30 @@ class VoiceInput:
             p.terminate()
 
     def _process_strict_logic(self, result_list, rec):
-        """Sprawdza pewność każdego słowa i dopasowuje do komendy."""
         now = time.time()
         if now - self.last_trigger_time < self.COOLDOWN:
             return
 
         cmd_detected = None
 
-        # Iterujemy po słowach w zdaniu
         for item in result_list:
             word = item.get("word", "")
             conf = item.get("conf", 0.0)
 
-            # Jeśli pewność jest za niska -> ignoruj (to pewnie rozmowa lub szum)
             if conf < self.MIN_CONFIDENCE or word == "[unk]":
                 continue
 
-            # --- PRIORYTETY ZGODNIE Z INSTRUKCJĄ ---
-            if word in ["koniec", "wyjście"]:
+            # --- PRIORYTETY (Z uproszczoną listą słów) ---
+            if word == "koniec":
                 cmd_detected = "EXIT"
-                break  # Wyjście ma najwyższy priorytet
-            elif word in ["stop", "pauza"]:
+                break
+            elif word == "stop" or word == "pauza":
                 cmd_detected = "STOP"
                 break
-            elif word in ["reset", "zeruj"]:
+            elif word == "reset":
                 cmd_detected = "RESET"
                 break
-            elif word in ["start", "zacznij"]:
+            elif word == "start" or word == "trener":
                 cmd_detected = "START"
                 break
 
