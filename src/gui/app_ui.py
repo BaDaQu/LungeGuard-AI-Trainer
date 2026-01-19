@@ -1,4 +1,5 @@
 import customtkinter as ctk
+from tkinter import filedialog, messagebox
 from PIL import Image
 import threading
 import sys
@@ -6,6 +7,7 @@ import queue
 import cv2
 import os
 import json
+import shutil
 from datetime import datetime
 from src.database.db_manager import DatabaseManager
 from src.logic.training_loop import run_training
@@ -73,7 +75,7 @@ class AppUI:
         self.tab_train = self.tabview.add("Start")
         self.tab_settings = self.tabview.add("Ustawienia")
         self.tab_history = self.tabview.add("Historia")
-        self.tab_help = self.tabview.add("Instrukcja")  # --- NOWOŚĆ: Zakładka Instrukcja ---
+        self.tab_help = self.tabview.add("Instrukcja")
 
         # --- ZAKŁADKA START ---
         lbl_ip = ctk.CTkLabel(self.tab_train, text="IP Kamery Bocznej (Telefon):")
@@ -97,7 +99,7 @@ class AppUI:
         # Inicjalizacja pozostałych zakładek
         self._setup_settings_tab()
         self._setup_history_tab()
-        self._setup_help_tab()  # --- NOWOŚĆ ---
+        self._setup_help_tab()
 
         self.lbl_status = ctk.CTkLabel(self.frame_dashboard, text="Gotowy.", text_color="gray")
         self.lbl_status.pack(pady=5)
@@ -123,10 +125,10 @@ class AppUI:
                      text_color="#3498db").pack(anchor="w", pady=(20, 5))
 
         commands = [
-            ("START / ZACZNIJ", "Rozpoczyna trening i analizę."),
+            ("START", "Rozpoczyna trening i analizę."),
             ("STOP / PAUZA", "Zatrzymuje licznik (tryb podglądu)."),
-            ("RESET / ZERUJ", "Zeruje licznik powtórzeń."),
-            ("KONIEC / WYJŚCIE", "Kończy trening, zapisuje dane i wraca do menu.")
+            ("RESET", "Zeruje licznik powtórzeń."),
+            ("KONIEC", "Kończy trening, zapisuje dane i wraca do menu.")
         ]
 
         for cmd, desc in commands:
@@ -139,6 +141,7 @@ class AppUI:
         # 3. WYKRYWANE BŁĘDY
         ctk.CTkLabel(scroll, text="3. Wykrywane Błędy", font=("Arial", 18, "bold"), text_color="#3498db").pack(
             anchor="w", pady=(20, 5))
+        # --- TUTAJ BYŁ BŁĄD (MINUS) --- NAPRAWIONE:
         msg_errors = (
             "• Valgus (Przód): Uciekanie kolana do wewnątrz.\n"
             "• Plecy (Bok): Nadmierne pochylenie tułowia do przodu.\n"
@@ -266,19 +269,77 @@ class AppUI:
 
     def _play_video(self, video_path):
         if not video_path: return
-        cap = cv2.VideoCapture(video_path)
-        if not cap.isOpened(): return
-        window_name = "Replay - LungeGuard"
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(window_name, 800, 600)
-        cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret: break
-            cv2.imshow(window_name, frame)
-            if cv2.waitKey(33) & 0xFF == ord('q'): break
-        cap.release()
-        cv2.destroyWindow(window_name)
+
+        # Okno opcji
+        win = ctk.CTkToplevel(self.root)
+        win.title("Nagranie sesji")
+        win.geometry("450x220")
+        win.attributes('-topmost', True)
+
+        ctk.CTkLabel(win, text="Zarządzanie nagraniem wideo", font=("Roboto", 16, "bold")).pack(pady=15)
+
+        def play():
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened(): return
+
+            window_name = "Replay (Nacisnij 'q' aby zamknac)"
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(window_name, 800, 600)
+            cv2.setWindowProperty(window_name, cv2.WND_PROP_TOPMOST, 1)
+
+            while True:
+                # Sprawdzenie czy okno zostało zamknięte przez 'X'
+                # Jeśli getWindowProperty zwróci < 1, oznacza to że okno nie istnieje
+                try:
+                    if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                        break
+                except:
+                    break
+
+                ret, frame = cap.read()
+                if not ret:  # Koniec filmu -> przewiń do początku (loop) lub wyjdź
+                    break
+
+                cv2.imshow(window_name, frame)
+
+                # Czekamy na 'q'
+                if cv2.waitKey(30) & 0xFF == ord('q'):
+                    break
+
+            cap.release()
+
+            # BEZPIECZNE ZAMYKANIE:
+            # Używamy try-except, aby zignorować błąd, jeśli okno już nie istnieje
+            try:
+                cv2.destroyWindow(window_name)
+            except:
+                pass
+
+        def download():
+            import shutil
+            from tkinter import filedialog, messagebox
+
+            original_filename = os.path.basename(video_path)
+            save_path = filedialog.asksaveasfilename(
+                defaultextension=".avi",
+                initialfile=original_filename,
+                title="Wybierz miejsce zapisu"
+            )
+
+            if save_path:
+                try:
+                    shutil.copy(video_path, save_path)
+                    messagebox.showinfo("Sukces", "Pomyślnie zapisano plik!")
+                except Exception as e:
+                    messagebox.showerror("Błąd", f"Nie udało się skopiować pliku: {e}")
+
+        btn_frame = ctk.CTkFrame(win, fg_color="transparent")
+        btn_frame.pack(pady=10)
+
+        ctk.CTkButton(btn_frame, text="ODTWÓRZ", fg_color="#3498db", command=play).pack(side="left", padx=10)
+        ctk.CTkButton(btn_frame, text="POBIERZ", fg_color="#2ecc71", command=download).pack(side="left", padx=10)
+
+        ctk.CTkButton(win, text="Zamknij", command=win.destroy).pack(pady=10)
 
     def _parse_and_show_chart(self, graph_json_str):
         try:
@@ -289,36 +350,71 @@ class AppUI:
 
     def _show_summary_window(self, data):
         if not data or not data["angles"]: return
+
+        # 1. Konfiguracja rozmiaru okna
+        win_w = 1000
+        win_h = 800  # Zwiększone, aby pomieścić legendę pod wykresem i duży guzik
+
         win = ctk.CTkToplevel(self.root)
         win.title("Podsumowanie Treningu")
-        win.geometry("800x600")
-        win.attributes('-topmost', True)
 
-        ctk.CTkLabel(win, text="Wykres Kąta Kolana (Bok)", font=("Roboto", 20, "bold")).pack(pady=10)
+        # 2. Logika centrowania okna na środku ekranu
+        screen_w = win.winfo_screenwidth()
+        screen_h = win.winfo_screenheight()
+        pos_x = int((screen_w / 2) - (win_w / 2))
+        pos_y = int((screen_h / 2) - (win_h / 2))
+
+        win.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
+        win.attributes('-topmost', True)  # Zawsze na wierzchu
+
+        ctk.CTkLabel(win, text="Wykres Kąta Kolana (Bok)", font=("Roboto", 24, "bold")).pack(pady=10)
+
+        # Przygotowanie danych
         times = np.array([d[0] for d in data["angles"]])
         values = np.array([d[1] for d in data["angles"]])
-        fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+
+        # Tworzenie figury
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=100)
         ax.plot(times, values, label="Kąt Kolana", color="blue", linewidth=2, zorder=1)
 
+        # Rysowanie błędów na linii
         if data["errors"]:
-            err_times = [e[0] for e in data["errors"]]
-            err_y = []
-            if len(times) > 0:
-                for et in err_times:
-                    closest_idx = min(range(len(times)), key=lambda i: abs(times[i] - et))
-                    err_y.append(values[closest_idx])
-                ax.scatter(err_times, err_y, color="red", s=60, label="Błędy", zorder=5, marker='o', edgecolors='black')
+            raw_err_times = [e[0] for e in data["errors"]]
+            filtered_err_times = []
+            last_t = -1
+            for t in raw_err_times:
+                if t - last_t > 0.5:
+                    filtered_err_times.append(t)
+                    last_t = t
 
+            if len(filtered_err_times) > 0 and len(times) > 0:
+                err_y = np.interp(filtered_err_times, times, values)
+                ax.scatter(filtered_err_times, err_y, color="red", s=80, label="Błędy", zorder=5, edgecolors='black')
+
+        # Stylistyka wykresu
         ax.set_xlabel("Czas (s)")
         ax.set_ylabel("Kąt (stopnie)")
-        ax.grid(True)
-        ax.legend()
-        ax.axhline(y=95, color='green', linestyle='--', alpha=0.5, label="Próg Dół")
-        ax.axhline(y=160, color='orange', linestyle='--', alpha=0.5, label="Próg Góra")
+        ax.grid(True, alpha=0.3)
+
+        # Progi maszyny stanów
+        ax.axhline(y=95, color='green', linestyle='--', alpha=0.5, label="Próg Dół (<95)")
+        ax.axhline(y=160, color='orange', linestyle='--', alpha=0.5, label="Próg Góra (>160)")
+
+        # Legenda POD wykresem (estetyczny układ)
+        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2, fontsize='10', frameon=True)
+
+        plt.tight_layout()
+        fig.subplots_adjust(bottom=0.2)  # Zostawiamy miejsce na legendę
+
+        # Osadzenie w Tkinter
         canvas = FigureCanvasTkAgg(fig, master=win)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill="both", expand=True, padx=10, pady=10)
-        ctk.CTkButton(win, text="Zamknij", command=win.destroy).pack(pady=10)
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=20, pady=10)
+
+        # Duży, widoczny przycisk zamknięcia
+        ctk.CTkButton(win, text="ZAMKNIJ", width=300, height=50,
+                      font=("Roboto", 18, "bold"),
+                      command=win.destroy).pack(pady=20)
 
     def _refresh_user_list(self):
         users = self.db.get_users()
