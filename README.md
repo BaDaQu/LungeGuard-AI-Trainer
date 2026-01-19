@@ -1,86 +1,106 @@
-# LungeGuard – Inteligentny asystent treningu wykroków
+# LungeGuard – Inteligentny asystent treningu wykroków 🏋️‍♂️👁️
 
-**LungeGuard** to zaawansowany system wizyjny wspierający trening siłowy. Aplikacja wykorzystuje dwie kamery (Laptop + Smartfon) oraz algorytmy sztucznej inteligencji (MediaPipe Pose) do analizy techniki wykonywania wykroków w czasie rzeczywistym. System nie tylko liczy powtórzenia, ale przede wszystkim pełni rolę surowego trenera – unieważnia powtórzenia wykonane z błędem technicznym.
+**LungeGuard** to zaawansowany system wizyjny czasu rzeczywistego, wspierający poprawną technikę wykonywania wykroków (lunges). Aplikacja wykorzystuje architekturę **Dual-View** (dwie kamery) oraz algorytmy sztucznej inteligencji (**MediaPipe Pose**) do analizy biomechanicznej ruchu. System pełni rolę "Cyber Trenera" – liczy powtórzenia, wykrywa błędy techniczne i reaguje głosowo, a po treningu generuje szczegółowe raporty z wykresami i nagraniem wideo.
 
-## 🚀 Możliwości systemu (Aktualny stan)
+---
 
-### 1. Analiza Dual-View (2 Kamery)
-System przetwarza obraz z dwóch perspektyw jednocześnie:
-*   **Widok z przodu (Front):** Analiza stabilności kolana.
-*   **Widok z boku (Side):** Analiza głębokości, postawy pleców i wychylenia kolana.
+## 🚀 Główne Funkcjonalności
 
-### 2. Wykrywanie błędów w czasie rzeczywistym
-LungeGuard monitoruje 3 kluczowe błędy techniczne. Jeśli którykolwiek wystąpi, system sygnalizuje błąd (czerwony kolor) i blokuje zaliczenie powtórzenia:
-*   ❌ **Koślawienie kolana (Valgus):** Wykrywanie uciekania kolana do wewnątrz (Widok Front).
-*   ❌ **Garbienie się (Torso Inclination):** Wykrywanie nadmiernego pochylenia tułowia powyżej 20° (Widok Side).
-*   ❌ **Przeciążenie kolana (Knee-Over-Toe):** Wykrywanie nadmiernego wysunięcia kolana przed palce stopy – kąt piszczeli > 40° (Widok Side).
+### 1. Analiza Biomechaniczna 3D (Dual-View)
+System przetwarza obraz z dwóch perspektyw jednocześnie, aby wyeliminować problem okluzji (zasłaniania kończyn):
+*   **Kamera Frontowa (Laptop):** Analiza stabilności kolana i wykrywanie błędu koślawienia (**Valgus**).
+*   **Kamera Boczna (Smartfon IP):** Analiza głębokości wykroku, kąta zgięcia kolana, pochylenia tułowia (**Torso Inclination**) oraz wysunięcia kolana (**Knee-Over-Toe**).
 
-### 3. Inteligentny Licznik & Anti-Cheat
-*   **Maszyna Stanów:** Zalicza powtórzenie tylko po wykonaniu pełnego cyklu (Kąt < 95° w dole, > 160° w górze).
-*   **Anti-Cheat:** System analizuje rozstaw stóp i obniżenie biodra, aby odróżnić poprawny wykrok od oszustw (np. uniesienia kolana w miejscu "Skip A" lub płytkich przysiadów).
+### 2. Inteligentny Licznik z systemem Anti-Cheat
+*   **Maszyna Stanów:** Algorytm zlicza powtórzenie tylko po wykonaniu pełnego cyklu ruchu (Kąt < 95° w dole, > 160° w górze).
+*   **Hip Drop Detection:** System ignoruje "oszukane" powtórzenia (np. unoszenie kolana w miejscu - "Skip A"). Aby zaliczyć ruch, środek ciężkości (biodro) musi fizycznie obniżyć się względem pozycji startowej.
 
-### 4. Optymalizacja i Standaryzacja (Sprint 2.5)
-*   **Stabilizacja (Smoothing):** Zastosowano filtry wygładzające (EMA), eliminujące drgania punktów szkieletowych.
-*   **Kontrola Środowiska:** System automatycznie sprawdza oświetlenie (za ciemno/za jasno) oraz odległość użytkownika od kamery, wyświetlając komunikaty korygujące (np. "PODEJDZ BLIZEJ").
-*   **Wydajność:** Zoptymalizowana obsługa kamer sieciowych eliminuje opóźnienia (lagi) nawet przy pracy na słabszym sprzęcie.
+### 3. Interfejs Głosowy (Offline)
+*   **Voice Control (Vosk):** Pełne sterowanie aplikacją bez użycia rąk. Komendy są przetwarzane lokalnie na urządzeniu (brak opóźnień sieciowych).
+*   **Audio Feedback (TTS):** Trener na bieżąco koryguje błędy (np. *"Wyprostuj plecy!"*, *"Kolano na zewnątrz!"*) oraz głośno liczy powtórzenia.
 
-## 🛠️ Stos technologiczny
+### 4. Raportowanie i Analiza Post-Treningowa
+*   **Baza Danych (SQLite):** Pełna historia treningów dla wielu użytkowników.
+*   **Wykresy Wydajności:** Po sesji generowany jest wykres pracy kolana w czasie, z naniesionymi czerwonymi punktami w momentach popełnienia błędu.
+*   **Video Replay:** Każda sesja jest nagrywana (60 FPS). Użytkownik może odtworzyć nagranie z nałożonymi liniami analitycznymi lub wyeksportować je do pliku `.avi`.
+
+---
+
+## 🛠️ Stos Technologiczny
 
 *   **Język:** Python 3.10
-*   **AI / Computer Vision:** MediaPipe Pose (Google), OpenCV
-*   **Matematyka:** NumPy, autorskie algorytmy geometryczne
-*   **Architektura:** Modułowa (Separacja logiki `TrainerLogic`, procesora danych `SkeletonProcessor` i warstwy prezentacji).
-*   **Sprzęt:** Laptop (Server/Processing) + Smartfon (IP Camera).
+*   **Computer Vision:** OpenCV, MediaPipe Pose (Google)
+*   **GUI:** CustomTkinter (Nowoczesny interfejs okienkowy)
+*   **Audio:** Vosk (Speech-to-Text), Pyttsx3 (Text-to-Speech)
+*   **Data Science:** NumPy (Obliczenia wektorowe), Matplotlib (Wykresy), SQLite (Baza danych)
+*   **Wielowątkowość:** `threading` & `queue` (Separacja logiki, renderowania UI, obsługi kamer i audio)
 
-## 📂 Struktura projektu
+---
 
-```text
-LungeGuard/
-├── src/
-│   ├── logic/
-│   │   ├── geometry_utils.py      # Biblioteka matematyczna (kąty)
-│   │   ├── pose_detector.py       # Wrapper na MediaPipe
-│   │   ├── skeleton_processor.py  # Normalizacja danych i obliczenia biomechaniczne
-│   │   └── trainer_logic.py       # Mózg systemu (Maszyna stanów, Walidacja)
-│   ├── utils/
-│   │   ├── camera_handler.py      # Wielowątkowa obsługa kamer (USB + IP)
-│   │   ├── environment_check.py   # Walidacja oświetlenia i dystansu
-│   │   └── landmark_smoother.py   # Filtry wygładzające drgania (EMA)
-│   └── main.py                    # Główna pętla programu i wizualizacja
-├── assets/
-└── requirements.txt
+## ⚙️ Instrukcja Instalacji
+
+### 1. Wymagania wstępne
+*   Python 3.10 (Zalecane ze względu na stabilność MediaPipe na Windows).
+*   Telefon z systemem Android i aplikacją **IP Webcam**.
+
+### 2. Instalacja zależności
+```bash
+git clone https://github.com/BaDaQu/LungeGuard.git
+cd LungeGuard
+python -m venv .venv
+.venv\Scripts\activate      # Windows
+pip install -r requirements.txt
 ```
 
-## ⚙️ Instalacja i uruchomienie
+### 3. Pobranie modelu mowy (Wymagane!)
+Aplikacja korzysta z modelu offline **Vosk**.
+1.  Pobierz model `vosk-model-small-pl-0.22` ze strony: [Vosk Models](https://alphacephei.com/vosk/models).
+2.  Wypakuj archiwum.
+3.  Zmień nazwę folderu na `model` i umieść go w głównym katalogu projektu.
+   *(Struktura powinna wyglądać tak: `LungeGuard/model/`)*.
 
-1.  **Sklonuj repozytorium:**
-    ```bash
-    git clone https://github.com/BaDaQu/LungeGuard.git
-    cd LungeGuard
-    ```
+---
 
-2.  **Przygotuj środowisko:**
-    ```bash
-    python -m venv .venv
-    .venv\Scripts\activate
-    pip install -r requirements.txt
-    ```
-    *Projekt wymaga wymuszenia starszej wersji `protobuf==3.20.3` dla poprawnego działania MediaPipe na Windows.*
+## 🖥️ Instrukcja Użytkowania
 
-3.  **Skonfiguruj kamerę w telefonie:**
-    *   Zainstaluj aplikację **IP Webcam** na Androidzie.
-    *   **WAŻNE:** Ustaw rozdzielczość wideo na **640x480** i jakość na **20** (dla płynności).
-    *   Uruchom serwer i odczytaj adres IP.
+### Konfiguracja Kamery (Smartfon)
+1.  Uruchom aplikację **IP Webcam** na telefonie.
+2.  W ustawieniach "Video preferences":
+    *   **Video resolution:** Ustaw na **640x480** (Kluczowe dla płynności!).
+    *   **Quality:** Ustaw na **20**.
+3.  Kliknij "Start server" i odczytaj adres IP (np. `http://192.168.0.15:8080`).
 
-4.  **Uruchom aplikację:**
-    *   Otwórz `src/main.py`.
-    *   Edytuj zmienną `SIDE_CAM_URL`, wpisując adres IP telefonu.
-    *   Uruchom: `python src/main.py`
+### Uruchomienie Aplikacji
+```bash
+python src/main.py
+```
+
+### Obsługa w 3 krokach:
+1.  **Dashboard:** Wybierz swoje imię (lub dodaj nowe), wpisz adres IP telefonu i kliknij **ROZPOCZNIJ SESJĘ**.
+2.  **Trening:**
+    *   Stań w kadrze obu kamer.
+    *   Powiedz **"START"** (lub "Trener start"), aby rozpocząć.
+    *   Ćwicz. System będzie liczył i korygował.
+    *   Powiedz **"STOP"** (Pauza) lub **"KONIEC"** (Zakończenie i zapis).
+3.  **Analiza:** Po zakończeniu zobaczysz wykres. W zakładce "Historia" możesz kliknąć **WIDEO**, aby obejrzeć powtórkę.
+
+---
+
+## 🗣️ Komendy Głosowe
+
+| Komenda | Działanie |
+| :--- | :--- |
+| **"START"** / **"ZACZNIJ"** | Uruchamia analizę i licznik powtórzeń. |
+| **"STOP"** / **"PAUZA"** | Wstrzymuje licznik (tryb podglądu). |
+| **"RESET"** | Zeruje licznik powtórzeń do 0. |
+| **"KONIEC"** / **"WYJŚCIE"** | Kończy trening, zapisuje dane do bazy i wraca do menu głównego. |
+
+---
 
 ## 👨‍💻 Zespół Projektowy
-Projekt realizowany w ramach zaliczenia przedmiotu.
+Projekt zrealizowany w ramach przedmiotu "Projekt Zespołowy".
 
-*   **Bartłomiej Raj (BaDaQu)**
-*   **Bartłomiej Jedyk**
-*   **Marcel Podlecki**
-*   **Wojciech Stochmiałek**
+*   **Bartłomiej Raj (BaDaQu)** – *Lider, Architektura, AI & Logic Core*
+*   **Bartłomiej Jedyk** – *DevOps, Testing*
+*   **Marcel Podlecki** – *Ekspert domenowy, Analiza danych*
+*   **Wojciech Stochmiałek** – *Frontend, UX*
