@@ -100,7 +100,7 @@ python src/main.py
 ## 👨‍💻 Zespół Projektowy
 Projekt zrealizowany w ramach przedmiotu "Projekt Zespołowy".
 
-*   **Bartłomiej Raj (BaDaQu)** – *Lider, Architektura, AI & Logic Core*
-*   **Bartłomiej Jedyk** – *DevOps, Testing*
-*   **Marcel Podlecki** – *Ekspert domenowy, Analiza danych*
-*   **Wojciech Stochmiałek** – *Frontend, UX*
+*   **Bartłomiej Raj (BaDaQu)** – *Lider, Architektura, AI & Logic Core, Frontend, UX, Analiza danych*
+*   **Bartłomiej Jedyk** – *Testing*
+*   **Marcel Podlecki** – *Testing, Ekspert domenowy*
+*   **Wojciech Stochmiałek** – *Testing*
