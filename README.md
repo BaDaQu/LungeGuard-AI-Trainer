@@ -100,7 +100,7 @@ python src/main.py
 ## 👨‍💻 Zespół Projektowy
 Projekt zrealizowany w ramach przedmiotu "Przetwarzanie sygnałów i obrazów (PSIO)".
 
-*   **Bartłomiej Raj (BaDaQu)** – *Lider, Architektura, AI & Logic Core, Frontend, UX, Analiza danych*
-*   **Bartłomiej Jedyk** – *Testing*
-*   **Marcel Podlecki** – *Testing, Ekspert domenowy*
-*   **Wojciech Stochmiałek** – *Testing*
+*   **Bartłomiej Raj (BaDaQu)** 
+*   **Bartłomiej Jedyk** 
+*   **Marcel Podlecki** 
+*   **Wojciech Stochmiałek** 
